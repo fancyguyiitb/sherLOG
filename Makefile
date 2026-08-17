@@ -1,4 +1,6 @@
-.PHONY: help up down logs test lint catalog inject surprise eval-frozen eval-nightly clean
+.PHONY: help up down logs test lint catalog inject surprise eval-frozen eval-nightly report clean
+
+CHROME ?= /c/Program Files/Google/Chrome/Application/chrome.exe
 
 help:
 	@echo "sherLOG — a verifiable AI SRE"
@@ -12,6 +14,7 @@ help:
 	@echo "  make surprise       inject a random fault without printing which"
 	@echo "  make eval-frozen    frozen-mode eval — cached responses, \$$0, runs in CI"
 	@echo "  make eval-nightly   replay-mode smoke over the 6 faults (~\$$1.50)"
+	@echo "  make report         rebuild the shareable project-report PDF"
 
 up:
 	docker compose up -d --build
@@ -51,6 +54,14 @@ eval-frozen:
 
 eval-nightly:
 	SHERLOG_MODE=replay python -m eval.run --faults F-01,F-02,F-03,F-04,F-05,F-06 --reps 1
+
+# The report is checked in as HTML and rendered to PDF on demand. Committing only the PDF
+# would make it a dead artifact — unreviewable in a diff and unfixable without whoever
+# happened to have the source on their laptop.
+report:
+	"$(CHROME)" --headless=new --disable-gpu --no-pdf-header-footer \
+	  --print-to-pdf="$(CURDIR)/sherLOG_Project_Report.pdf" \
+	  --virtual-time-budget=10000 "file://$(CURDIR)/docs/report/report.html"
 
 clean:
 	docker compose down -v

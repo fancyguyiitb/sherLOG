@@ -1,0 +1,1313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>sherLOG — Project Report</title>
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 16mm 20mm 16mm;
+    @bottom-center { content: counter(page); }
+  }
+
+  :root {
+    --ink:        #1a1d21;
+    --ink-soft:   #494f57;
+    --ink-faint:  #767d86;
+    --rule:       #d8dce1;
+    --rule-soft:  #eaedf0;
+    --accent:     #1f4d8f;
+    --accent-dim: #e8eef7;
+    --amber:      #8a5a00;
+    --amber-bg:   #fdf6e7;
+    --green:      #1d6b45;
+    --red:        #9d2f35;
+    --mono: "SF Mono", "Cascadia Mono", "Consolas", "Liberation Mono", monospace;
+    --sans: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --serif: "Charter", "Georgia", "Iowan Old Style", "Times New Roman", serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { font-size: 10.5pt; }
+
+  body {
+    margin: 0;
+    font-family: var(--serif);
+    color: var(--ink);
+    line-height: 1.52;
+    background: #fff;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- cover ---------- */
+
+  .cover {
+    height: 247mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    break-after: page;
+  }
+
+  .cover-top { padding-top: 26mm; }
+
+  .eyebrow {
+    font-family: var(--sans);
+    font-size: 8.5pt;
+    letter-spacing: .17em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 10mm;
+  }
+
+  .cover h1 {
+    font-family: var(--sans);
+    font-size: 44pt;
+    font-weight: 700;
+    letter-spacing: -.028em;
+    line-height: 1.0;
+    margin: 0 0 5mm;
+    color: var(--ink);
+  }
+
+  .cover .tagline {
+    font-size: 15pt;
+    line-height: 1.42;
+    color: var(--ink-soft);
+    max-width: 132mm;
+    margin: 0 0 12mm;
+  }
+
+  .cover .thesis {
+    border-left: 2.5pt solid var(--accent);
+    padding: 1mm 0 1mm 6mm;
+    max-width: 138mm;
+    font-size: 11.5pt;
+    line-height: 1.55;
+  }
+
+  .cover .thesis strong { color: var(--accent); }
+
+  .cover-foot {
+    border-top: .8pt solid var(--rule);
+    padding-top: 5mm;
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--sans);
+    font-size: 8.5pt;
+    color: var(--ink-faint);
+    letter-spacing: .02em;
+  }
+
+  .cover-foot div { display: flex; flex-direction: column; gap: 1.5mm; }
+  .cover-foot .k { font-weight: 600; color: var(--ink-soft); letter-spacing: .1em; text-transform: uppercase; font-size: 7.5pt; }
+
+  /* ---------- structure ---------- */
+
+  h2 {
+    font-family: var(--sans);
+    font-size: 16.5pt;
+    font-weight: 680;
+    letter-spacing: -.018em;
+    margin: 11mm 0 3.5mm;
+    padding-bottom: 2mm;
+    border-bottom: 1.4pt solid var(--ink);
+    break-after: avoid;
+  }
+
+  h2 .num {
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    margin-right: 3mm;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-size: 11.5pt;
+    font-weight: 640;
+    letter-spacing: -.008em;
+    margin: 7mm 0 2mm;
+    color: var(--ink);
+    break-after: avoid;
+  }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 9.5pt;
+    font-weight: 640;
+    letter-spacing: .01em;
+    margin: 5mm 0 1.5mm;
+    color: var(--ink-soft);
+    break-after: avoid;
+  }
+
+  p { margin: 0 0 3mm; }
+  p + h3, ul + h3, table + h3 { margin-top: 7mm; }
+
+  .lede {
+    font-size: 11.5pt;
+    color: var(--ink-soft);
+    line-height: 1.5;
+    margin-bottom: 5mm;
+  }
+
+  ul, ol { margin: 0 0 3.5mm; padding-left: 5.5mm; }
+  li { margin-bottom: 1.6mm; }
+  li::marker { color: var(--ink-faint); }
+
+  strong { font-weight: 700; }
+  em { font-style: italic; }
+
+  code {
+    font-family: var(--mono);
+    font-size: .855em;
+    background: #f4f6f8;
+    padding: .4mm 1.1mm;
+    border-radius: 1.5pt;
+    color: #2a3138;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+
+  .page-break { break-before: page; }
+  .keep { break-inside: avoid; }
+
+  /* ---------- tables ---------- */
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 3mm 0 5mm;
+    font-family: var(--sans);
+    font-size: 8.6pt;
+    line-height: 1.4;
+    break-inside: avoid;
+  }
+
+  thead th {
+    text-align: left;
+    font-weight: 650;
+    font-size: 7.6pt;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    border-bottom: 1pt solid var(--ink);
+    padding: 0 2.5mm 1.6mm 0;
+    vertical-align: bottom;
+  }
+
+  tbody td {
+    padding: 1.8mm 2.5mm 1.8mm 0;
+    border-bottom: .5pt solid var(--rule-soft);
+    vertical-align: top;
+  }
+
+  tbody tr:last-child td { border-bottom: .8pt solid var(--rule); }
+  td code { font-size: .88em; background: none; padding: 0; color: var(--accent); }
+  .t-id { font-family: var(--mono); font-weight: 600; white-space: nowrap; color: var(--ink); }
+  .t-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .t-tight td, .t-tight th { padding-right: 1.8mm; }
+
+  /* ---------- callouts ---------- */
+
+  .note {
+    background: var(--accent-dim);
+    border-left: 2.5pt solid var(--accent);
+    padding: 3mm 4mm;
+    margin: 4mm 0;
+    font-size: 9.6pt;
+    line-height: 1.48;
+    break-inside: avoid;
+  }
+
+  .note .label {
+    display: block;
+    font-family: var(--sans);
+    font-size: 7.4pt;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.5mm;
+  }
+
+  .note.warn { background: var(--amber-bg); border-left-color: var(--amber); }
+  .note.warn .label { color: var(--amber); }
+
+  .note p:last-child { margin-bottom: 0; }
+
+  /* ---------- figures ---------- */
+
+  figure {
+    margin: 5mm 0;
+    break-inside: avoid;
+  }
+
+  figure svg { display: block; width: 100%; height: auto; }
+
+  figcaption {
+    font-family: var(--sans);
+    font-size: 8pt;
+    color: var(--ink-faint);
+    margin-top: 2mm;
+    line-height: 1.42;
+  }
+
+  figcaption b { color: var(--ink-soft); font-weight: 650; }
+
+  /* ---------- misc components ---------- */
+
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 3mm;
+    margin: 4mm 0 6mm;
+    break-inside: avoid;
+  }
+
+  .kpi {
+    border: .8pt solid var(--rule);
+    border-top: 2pt solid var(--accent);
+    padding: 3mm 3mm 3.5mm;
+  }
+
+  .kpi .v {
+    font-family: var(--sans);
+    font-size: 19pt;
+    font-weight: 700;
+    letter-spacing: -.03em;
+    line-height: 1;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .kpi .l {
+    font-family: var(--sans);
+    font-size: 7.6pt;
+    color: var(--ink-faint);
+    margin-top: 1.8mm;
+    line-height: 1.35;
+  }
+
+  pre {
+    font-family: var(--mono);
+    font-size: 8.1pt;
+    line-height: 1.5;
+    background: #f7f8fa;
+    border: .5pt solid var(--rule);
+    border-left: 2pt solid var(--accent);
+    padding: 3mm 4mm;
+    margin: 3mm 0 4mm;
+    overflow-x: auto;
+    white-space: pre;
+    break-inside: avoid;
+    color: #2a3138;
+  }
+
+  pre .c { color: #6b7480; font-style: italic; }
+  pre .k { color: var(--accent); font-weight: 600; }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--sans);
+    font-size: 7.2pt;
+    font-weight: 650;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    padding: .5mm 1.6mm;
+    border-radius: 2pt;
+    vertical-align: 1pt;
+  }
+  .tag.ok   { background: #e4f0ea; color: var(--green); }
+  .tag.stop { background: #f7e7e8; color: var(--red); }
+  .tag.warn { background: var(--amber-bg); color: var(--amber); }
+
+  .two-col { columns: 2; column-gap: 8mm; }
+  .two-col > * { break-inside: avoid; }
+
+  .toc { font-family: var(--sans); font-size: 9.2pt; }
+  .toc ol { list-style: none; padding: 0; margin: 0; counter-reset: toc; }
+  .toc li {
+    counter-increment: toc;
+    display: flex;
+    gap: 3mm;
+    padding: 1.7mm 0;
+    border-bottom: .5pt solid var(--rule-soft);
+  }
+  .toc li::before {
+    content: counter(toc, decimal-leading-zero);
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    font-weight: 650;
+    min-width: 7mm;
+  }
+  .toc .d { color: var(--ink-faint); font-size: 8.4pt; margin-left: auto; text-align: right; max-width: 78mm; }
+</style>
+</head>
+<body>
+
+<!-- ============================== COVER ============================== -->
+<section class="cover">
+  <div class="cover-top">
+    <div class="eyebrow">Project Report &middot; Version 1 Scope</div>
+    <h1>sherLOG</h1>
+    <p class="tagline">An autonomous root-cause analysis system for production incidents — and a method for proving how often it is right.</p>
+    <div class="thesis">
+      The thesis of this project is not <em>an AI SRE</em>. It is <strong>a verifiable AI SRE</strong>: an agentic system whose correctness is continuously measured against injected ground truth, and which refuses to answer when the evidence is insufficient.
+    </div>
+  </div>
+
+  <figure style="margin:0;">
+    <svg viewBox="0 0 620 132" role="img" aria-label="Pipeline from fault injection through detection, investigation and grounding to a scored verdict">
+      <defs>
+        <marker id="ar" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+          <path d="M0,0 L7,3.5 L0,7 z" fill="#767d86"/>
+        </marker>
+      </defs>
+      <g font-family="Inter, Segoe UI, sans-serif">
+        <!-- boxes -->
+        <g>
+          <rect x="0" y="36" width="96" height="42" fill="#fff" stroke="#1f4d8f" stroke-width="1.6"/>
+          <text x="48" y="53" font-size="9.5" font-weight="650" text-anchor="middle" fill="#1a1d21">Fault</text>
+          <text x="48" y="65" font-size="9.5" font-weight="650" text-anchor="middle" fill="#1a1d21">injection</text>
+        </g>
+        <g>
+          <rect x="131" y="36" width="96" height="42" fill="#fff" stroke="#d8dce1" stroke-width="1.2"/>
+          <text x="179" y="53" font-size="9.5" text-anchor="middle" fill="#1a1d21">Target</text>
+          <text x="179" y="65" font-size="9.5" text-anchor="middle" fill="#1a1d21">system</text>
+        </g>
+        <g>
+          <rect x="262" y="36" width="96" height="42" fill="#fff" stroke="#d8dce1" stroke-width="1.2"/>
+          <text x="310" y="53" font-size="9.5" text-anchor="middle" fill="#1a1d21">Burn-rate</text>
+          <text x="310" y="65" font-size="9.5" text-anchor="middle" fill="#1a1d21">detection</text>
+        </g>
+        <g>
+          <rect x="393" y="36" width="96" height="42" fill="#fff" stroke="#d8dce1" stroke-width="1.2"/>
+          <text x="441" y="53" font-size="9.5" text-anchor="middle" fill="#1a1d21">Investigation</text>
+          <text x="441" y="65" font-size="9.5" text-anchor="middle" fill="#1a1d21">engine</text>
+        </g>
+        <g>
+          <rect x="524" y="36" width="96" height="42" fill="#f2f6fc" stroke="#1f4d8f" stroke-width="1.6"/>
+          <text x="572" y="53" font-size="9.5" font-weight="650" text-anchor="middle" fill="#1f4d8f">Scored</text>
+          <text x="572" y="65" font-size="9.5" font-weight="650" text-anchor="middle" fill="#1f4d8f">verdict</text>
+        </g>
+        <!-- arrows -->
+        <line x1="96"  y1="57" x2="124" y2="57" stroke="#767d86" stroke-width="1.1" marker-end="url(#ar)"/>
+        <line x1="227" y1="57" x2="255" y2="57" stroke="#767d86" stroke-width="1.1" marker-end="url(#ar)"/>
+        <line x1="358" y1="57" x2="386" y2="57" stroke="#767d86" stroke-width="1.1" marker-end="url(#ar)"/>
+        <line x1="489" y1="57" x2="517" y2="57" stroke="#767d86" stroke-width="1.1" marker-end="url(#ar)"/>
+        <!-- ground truth loop -->
+        <path d="M48,36 L48,14 L572,14 L572,36" fill="none" stroke="#1f4d8f" stroke-width="1.1" stroke-dasharray="3.5 3" marker-end="url(#ar)"/>
+        <text x="310" y="10" font-size="8" text-anchor="middle" fill="#1f4d8f" font-weight="600">ground truth — written where the engine holds no read grant</text>
+        <!-- autonomy bracket -->
+        <path d="M262,86 L262,96 L620,96 L620,86" fill="none" stroke="#767d86" stroke-width="1"/>
+        <text x="441" y="110" font-size="8" text-anchor="middle" fill="#767d86">zero human input from the moment a detector fires</text>
+      </g>
+    </svg>
+  </figure>
+
+  <div class="cover-foot">
+    <div><span class="k">Duration</span><span>8 weeks</span></div>
+    <div><span class="k">Infrastructure cost</span><span>$0 &mdash; free tier throughout</span></div>
+    <div><span class="k">Model budget</span><span>$40&ndash;90 total</span></div>
+    <div><span class="k">Deliverable</span><span>Deployed system + evaluation</span></div>
+  </div>
+</section>
+
+<!-- ============================== CONTENTS ============================== -->
+<h2><span class="num">01</span>What this document covers</h2>
+
+<p class="lede">This report describes what sherLOG is, why it is built the way it is, and exactly what ships in version&nbsp;1. It is a scope document, not a status report.</p>
+
+<div class="toc">
+  <ol>
+    <li>What this document covers <span class="d">scope and structure</span></li>
+    <li>The problem, and the asset that solves it <span class="d">why accuracy is measurable here and nowhere else</span></li>
+    <li>System architecture <span class="d">seven planes, separately deployable</span></li>
+    <li>The target system <span class="d">Nimbus Store — five services built to fail ambiguously</span></li>
+    <li>Observability <span class="d">Loki, Prometheus, Tempo, and the log schema everything depends on</span></li>
+    <li>Autonomous detection <span class="d">multi-window burn rate, alert correlation</span></li>
+    <li>The evidence layer <span class="d">seven deterministic tools, no model anywhere</span></li>
+    <li>The investigation engine <span class="d">staged state machine, hypothesis ledger, computed confidence</span></li>
+    <li>The grounding stack <span class="d">citation verification, adversarial critic, calibrated abstention</span></li>
+    <li>Security architecture <span class="d">redaction gate, canary, credential broker, doc tiers</span></li>
+    <li>The fault catalog <span class="d">six faults, two decoys, one abstention case</span></li>
+    <li>The reasoning stack <span class="d">no framework, per-stage model routing, fallback ladder</span></li>
+    <li>Evaluation <span class="d">nine metrics, the run matrix, and how not to fool ourselves</span></li>
+    <li>The frontend <span class="d">a glass box, not a chat window</span></li>
+    <li>Deployment and cost <span class="d">free tier throughout</span></li>
+    <li>What v1 deliberately excludes <span class="d">and what it would take to add</span></li>
+  </ol>
+</div>
+
+<!-- ============================== PROBLEM ============================== -->
+<h2><span class="num">02</span>The problem, and the asset that solves it</h2>
+
+<p>An AI system that diagnoses production incidents is a crowded idea. Several commercial products exist, and any competent engineer can wire a language model to a logging API in an afternoon. The interesting question is not whether such a system can produce a plausible root-cause narrative. It always can. The question is whether the narrative is <em>true</em>, and how anyone would know.</p>
+
+<p>That question is structurally unanswerable in the commercial setting. In a customer's production environment, nobody knows the true root cause of an incident — that is precisely why the incident needed investigating. So a vendor cannot say "our root-cause analysis is 84% accurate", because there is nothing to score against. Accuracy claims in this space are testimonial by necessity.</p>
+
+<div class="note">
+  <span class="label">The asset</span>
+  <p>sherLOG owns its environment and injects its own faults. It therefore knows the true root cause of every incident it investigates. That single fact converts the vaguest requirement in this space — <em>guardrails against hallucination</em> — from hand-waving into a measured, graphed, defensible system property.</p>
+</div>
+
+<p>Everything in the design follows from that. The system is built so that a language model sits inside a structure that <em>constrains</em> it, <em>verifies</em> it, and <em>measures</em> it, rather than one that asks it politely to be careful. Six mechanisms carry that weight:</p>
+
+<table>
+  <thead>
+    <tr><th style="width:31%">Mechanism</th><th>What it replaces</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Fault catalog with ground truth</strong></td>
+      <td>Anecdotal evaluation. Nine declarative faults, each carrying the recipe for injecting it and the truth about what it does.</td>
+    </tr>
+    <tr>
+      <td><strong>Hypothesis ledger with pre-registered predictions</strong></td>
+      <td>"Think step by step." Hypotheses must state what would falsify them <em>before</em> evidence is gathered.</td>
+    </tr>
+    <tr>
+      <td><strong>Computed confidence</strong></td>
+      <td>A model asked how sure it is. Models emit discrete labels; code does the arithmetic.</td>
+    </tr>
+    <tr>
+      <td><strong>Programmatic citation verification</strong></td>
+      <td>A second model checking the first. Four deterministic checks strip claims that fail.</td>
+    </tr>
+    <tr>
+      <td><strong>Calibrated abstention</strong></td>
+      <td>A system that always answers. <code>INSUFFICIENT_EVIDENCE</code> is a success state with faults designed to reach it.</td>
+    </tr>
+    <tr>
+      <td><strong>Security by type and grant</strong></td>
+      <td>Careful code review. The redaction gate is a type boundary; ground-truth isolation is a database permission.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>The one demo that has to work</h3>
+
+<p>The entire design is built backwards from a single sentence:</p>
+
+<div class="note">
+  <span class="label">Target demonstration</span>
+  <p>A reviewer clicks <strong>Inject: connection pool exhaustion</strong>, then does nothing else. Within roughly 90 seconds the interface shows an SLO breach detected, an investigation opened autonomously, three hypotheses raised with falsifiable predictions, evidence gathered against each, two hypotheses eliminated with cited counter-evidence, a root cause stated with a commit SHA and a log signature, and a proposed fix. They then open the evaluation tab and see the same pipeline scored across every prior run.</p>
+</div>
+
+<!-- ============================== ARCHITECTURE ============================== -->
+<h2><span class="num">03</span>System architecture</h2>
+
+<p class="lede">Seven planes, kept as separate deployables so each can be demonstrated, tested, and fail independently.</p>
+
+<figure>
+<svg viewBox="0 0 620 322" role="img" aria-label="Seven-plane architecture from target system through observability, detection, evidence, investigation, grounding to frontend">
+  <defs>
+    <marker id="a2" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#767d86"/>
+    </marker>
+    <marker id="a3" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#1f4d8f"/>
+    </marker>
+  </defs>
+  <g font-family="Inter, Segoe UI, sans-serif">
+
+    <!-- plane rows -->
+    <g>
+      <rect x="88" y="2" width="440" height="34" fill="#fff" stroke="#1f4d8f" stroke-width="1.5"/>
+      <text x="98" y="16" font-size="7.4" font-weight="700" fill="#1f4d8f" letter-spacing=".08em">PLANE 1 — TARGET SYSTEM</text>
+      <text x="98" y="29" font-size="8.6" fill="#494f57">gateway → orders-svc → payments-svc → worker &nbsp;|&nbsp; Postgres, Redis, k6 load</text>
+    </g>
+
+    <g>
+      <rect x="88" y="48" width="440" height="34" fill="#fff" stroke="#d8dce1" stroke-width="1.1"/>
+      <text x="98" y="62" font-size="7.4" font-weight="700" fill="#767d86" letter-spacing=".08em">PLANE 2 — OBSERVABILITY</text>
+      <text x="98" y="75" font-size="8.6" fill="#494f57">Loki · Prometheus · Tempo · Postgres (deployments, jobs)</text>
+    </g>
+
+    <g>
+      <rect x="88" y="94" width="440" height="34" fill="#fff" stroke="#d8dce1" stroke-width="1.1"/>
+      <text x="98" y="108" font-size="7.4" font-weight="700" fill="#767d86" letter-spacing=".08em">PLANE 3 — DETECTION &amp; TRIGGER</text>
+      <text x="98" y="121" font-size="8.6" fill="#494f57">SLO burn-rate detectors → correlation → Incident opened autonomously</text>
+    </g>
+
+    <g>
+      <rect x="88" y="140" width="440" height="34" fill="#fff" stroke="#d8dce1" stroke-width="1.1"/>
+      <text x="98" y="154" font-size="7.4" font-weight="700" fill="#767d86" letter-spacing=".08em">PLANE 4 — EVIDENCE LAYER · deterministic, no LLM</text>
+      <text x="98" y="167" font-size="8.6" fill="#494f57">log_stats · log_sample · metric_query · trace_search · git_diff_since · runtime_state · doc_search</text>
+    </g>
+
+    <!-- redaction gate -->
+    <g>
+      <rect x="88" y="180" width="440" height="17" fill="#e8eef7" stroke="#1f4d8f" stroke-width="1.2"/>
+      <text x="308" y="192" font-size="8" font-weight="700" fill="#1f4d8f" text-anchor="middle" letter-spacing=".14em">⟂ SECRET REDACTION GATE ⟂</text>
+    </g>
+
+    <g>
+      <rect x="88" y="203" width="440" height="34" fill="#fff" stroke="#d8dce1" stroke-width="1.1"/>
+      <text x="98" y="217" font-size="7.4" font-weight="700" fill="#767d86" letter-spacing=".08em">PLANE 5 — INVESTIGATION ENGINE</text>
+      <text x="98" y="230" font-size="8.6" fill="#494f57">Triage → Hypothesize → Gather → Verify → Critic → Report &nbsp;|&nbsp; ledger · budget · subagents</text>
+    </g>
+
+    <g>
+      <rect x="88" y="249" width="440" height="34" fill="#fff" stroke="#d8dce1" stroke-width="1.1"/>
+      <text x="98" y="263" font-size="7.4" font-weight="700" fill="#767d86" letter-spacing=".08em">PLANE 6 — GROUNDING &amp; SCORING</text>
+      <text x="98" y="276" font-size="8.6" fill="#494f57">citation verifier · claim–evidence matcher · abstention gate · eval harness</text>
+    </g>
+
+    <g>
+      <rect x="88" y="295" width="440" height="24" fill="#fff" stroke="#d8dce1" stroke-width="1.1"/>
+      <text x="98" y="311" font-size="7.4" font-weight="700" fill="#767d86" letter-spacing=".08em">PLANE 7 — FRONTEND</text>
+      <text x="240" y="311" font-size="8.6" fill="#494f57">live timeline · fault console · evidence inspector · eval dashboard</text>
+    </g>
+
+    <!-- vertical flow arrows -->
+    <g stroke="#767d86" stroke-width="1" marker-end="url(#a2)">
+      <line x1="308" y1="36"  x2="308" y2="45"/>
+      <line x1="308" y1="82"  x2="308" y2="91"/>
+      <line x1="308" y1="128" x2="308" y2="137"/>
+      <line x1="308" y1="174" x2="308" y2="178"/>
+      <line x1="308" y1="197" x2="308" y2="200"/>
+      <line x1="308" y1="237" x2="308" y2="246"/>
+      <line x1="308" y1="283" x2="308" y2="292"/>
+    </g>
+
+    <!-- fault engine -->
+    <g>
+      <rect x="0" y="90" width="72" height="128" fill="#f2f6fc" stroke="#1f4d8f" stroke-width="1.5"/>
+      <text x="36" y="140" font-size="8.6" font-weight="700" fill="#1f4d8f" text-anchor="middle">FAULT</text>
+      <text x="36" y="152" font-size="8.6" font-weight="700" fill="#1f4d8f" text-anchor="middle">INJECTION</text>
+      <text x="36" y="164" font-size="8.6" font-weight="700" fill="#1f4d8f" text-anchor="middle">ENGINE</text>
+      <path d="M36,90 L36,19 L84,19" fill="none" stroke="#1f4d8f" stroke-width="1.2" marker-end="url(#a3)"/>
+      <path d="M36,218 L36,266 L84,266" fill="none" stroke="#1f4d8f" stroke-width="1.2" stroke-dasharray="3.5 3" marker-end="url(#a3)"/>
+      <text x="6" y="240" font-size="7" fill="#1f4d8f">writes ground</text>
+      <text x="6" y="249" font-size="7" fill="#1f4d8f">truth →</text>
+    </g>
+
+    <!-- side note -->
+    <g>
+      <rect x="544" y="140" width="76" height="97" fill="#fdf6e7" stroke="#8a5a00" stroke-width="1"/>
+      <text x="552" y="154" font-size="7" font-weight="700" fill="#8a5a00">ISOLATION</text>
+      <text x="552" y="167" font-size="6.8" fill="#8a5a00">Plane 6 holds the</text>
+      <text x="552" y="176" font-size="6.8" fill="#8a5a00">ground truth in a</text>
+      <text x="552" y="185" font-size="6.8" fill="#8a5a00">separate database.</text>
+      <text x="552" y="198" font-size="6.8" fill="#8a5a00">Plane 5 connects as</text>
+      <text x="552" y="207" font-size="6.8" fill="#8a5a00">a role with no grant</text>
+      <text x="552" y="216" font-size="6.8" fill="#8a5a00">on it at all.</text>
+      <text x="552" y="229" font-size="6.8" font-weight="700" fill="#8a5a00">CI asserts this.</text>
+    </g>
+  </g>
+</svg>
+<figcaption><b>Figure 1.</b> The critical property is the isolation boundary: the fault engine writes the ground-truth label to a store the investigation engine cannot read. It is enforced at the database-permission level, not by convention. If a reviewer suspects leakage, every accuracy number the project reports is void.</figcaption>
+</figure>
+
+<!-- ============================== TARGET SYSTEM ============================== -->
+<h2><span class="num">04</span>The target system</h2>
+
+<p class="lede"><strong>Nimbus Store</strong> — a minimal e-commerce checkout path. Five services, two datastores, one chaos proxy, roughly 800 lines of application code.</p>
+
+<p>Checkout was chosen because it is the one flow every reviewer already understands, so no explanation budget is spent on the application itself. All of it goes to the diagnosis.</p>
+
+<p>The topology is not arbitrary. It is shaped so that <strong>the symptom is never where the cause is</strong>. A slow payment provider surfaces as gateway timeouts three hops away. Redis eviction surfaces as Postgres load. A stalled worker surfaces as stale reads with no errors at all. That distance is what makes root-cause analysis harder than alert routing — and if the gateway could name the cause, there would be nothing to diagnose.</p>
+
+<figure>
+<svg viewBox="0 0 620 268" role="img" aria-label="Nimbus Store topology: k6 to gateway to orders-svc, with Redis and Postgres, payments-svc through toxiproxy to psp-stub, and a worker">
+  <defs>
+    <marker id="a4" markerWidth="6.5" markerHeight="6.5" refX="5.8" refY="3.25" orient="auto">
+      <path d="M0,0 L6.5,3.25 L0,6.5 z" fill="#767d86"/>
+    </marker>
+  </defs>
+  <g font-family="Inter, Segoe UI, sans-serif" font-size="8.6">
+
+    <!-- k6 -->
+    <rect x="18" y="4" width="118" height="30" fill="#f7f8fa" stroke="#d8dce1" stroke-width="1"/>
+    <text x="77" y="17" text-anchor="middle" fill="#1a1d21" font-weight="600">k6 load generator</text>
+    <text x="77" y="28" text-anchor="middle" fill="#767d86" font-size="7.4">13 rps · diurnal · cohort-split</text>
+
+    <!-- gateway -->
+    <rect x="18" y="58" width="118" height="34" fill="#fff" stroke="#1f4d8f" stroke-width="1.5"/>
+    <text x="77" y="72" text-anchor="middle" font-weight="650" fill="#1a1d21">gateway :8000</text>
+    <text x="77" y="84" text-anchor="middle" fill="#767d86" font-size="7.4">timeouts + retries · no DB</text>
+
+    <!-- orders -->
+    <rect x="18" y="116" width="118" height="34" fill="#fff" stroke="#1f4d8f" stroke-width="1.5"/>
+    <text x="77" y="130" text-anchor="middle" font-weight="650" fill="#1a1d21">orders-svc :8001</text>
+    <text x="77" y="142" text-anchor="middle" fill="#767d86" font-size="7.4">pool + cache + orchestration</text>
+
+    <!-- redis -->
+    <rect x="176" y="116" width="94" height="34" fill="#f7f8fa" stroke="#d8dce1" stroke-width="1"/>
+    <text x="223" y="130" text-anchor="middle" fill="#1a1d21">Redis 7</text>
+    <text x="223" y="142" text-anchor="middle" fill="#767d86" font-size="7.4">catalog cache</text>
+
+    <!-- postgres -->
+    <rect x="18" y="196" width="118" height="60" fill="#f7f8fa" stroke="#d8dce1" stroke-width="1"/>
+    <text x="77" y="212" text-anchor="middle" fill="#1a1d21" font-weight="600">Postgres 16</text>
+    <text x="77" y="225" text-anchor="middle" fill="#767d86" font-size="7.4">orders · items · inventory</text>
+    <text x="77" y="236" text-anchor="middle" fill="#767d86" font-size="7.4">payments · jobs · deployments</text>
+    <text x="77" y="249" text-anchor="middle" fill="#1f4d8f" font-size="7.2" font-weight="600">+ sherlog_truth (separate role)</text>
+
+    <!-- worker -->
+    <rect x="176" y="196" width="94" height="34" fill="#fff" stroke="#1f4d8f" stroke-width="1.5"/>
+    <text x="223" y="210" text-anchor="middle" font-weight="650" fill="#1a1d21">worker</text>
+    <text x="223" y="222" text-anchor="middle" fill="#767d86" font-size="7.4">SKIP LOCKED loop</text>
+
+    <!-- payments -->
+    <rect x="322" y="116" width="118" height="34" fill="#fff" stroke="#1f4d8f" stroke-width="1.5"/>
+    <text x="381" y="130" text-anchor="middle" font-weight="650" fill="#1a1d21">payments-svc :8002</text>
+    <text x="381" y="142" text-anchor="middle" fill="#767d86" font-size="7.4">idempotency keys</text>
+
+    <!-- toxiproxy -->
+    <rect x="322" y="176" width="118" height="34" fill="#fdf6e7" stroke="#8a5a00" stroke-width="1.4"/>
+    <text x="381" y="190" text-anchor="middle" font-weight="650" fill="#8a5a00">toxiproxy</text>
+    <text x="381" y="202" text-anchor="middle" fill="#8a5a00" font-size="7.4">chaos injection point</text>
+
+    <!-- psp -->
+    <rect x="482" y="176" width="118" height="34" fill="#f7f8fa" stroke="#d8dce1" stroke-width="1"/>
+    <text x="541" y="190" text-anchor="middle" fill="#1a1d21">psp-stub :8003</text>
+    <text x="541" y="202" text-anchor="middle" fill="#767d86" font-size="7.4">fake provider · 40–80 ms</text>
+
+    <!-- edges -->
+    <g stroke="#767d86" stroke-width="1.1" fill="none" marker-end="url(#a4)">
+      <line x1="77" y1="34"  x2="77" y2="54"/>
+      <line x1="77" y1="92"  x2="77" y2="112"/>
+      <line x1="136" y1="133" x2="172" y2="133"/>
+      <line x1="77" y1="150" x2="77" y2="192"/>
+      <line x1="136" y1="140" x2="318" y2="133"/>
+      <line x1="381" y1="150" x2="381" y2="172"/>
+      <line x1="440" y1="193" x2="478" y2="193"/>
+      <line x1="176" y1="213" x2="140" y2="213"/>
+    </g>
+
+    <!-- edge labels -->
+    <text x="90" y="107" fill="#767d86" font-size="7.2">HTTP</text>
+    <text x="238" y="128" fill="#767d86" font-size="7.2" text-anchor="middle"></text>
+    <text x="250" y="152" fill="#767d86" font-size="7.2">HTTP</text>
+    <text x="392" y="167" fill="#767d86" font-size="7.2">HTTP</text>
+  </g>
+</svg>
+<figcaption><b>Figure 2.</b> Every arrow crossing a service boundary is a place a fault can hide. Toxiproxy sits on the payments&rarr;provider link so dependency latency is injected at layer 4 on a real network hop — not as a sleep inside application code, which would make the resulting traces a fiction.</figcaption>
+</figure>
+
+<h3>Service contracts</h3>
+
+<table>
+  <thead>
+    <tr><th style="width:18%">Service</th><th style="width:9%">Port</th><th>Responsibility</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="t-id">gateway</td><td class="t-num">8000</td><td>Public HTTP. <code>POST /checkout</code>, <code>GET /orders/{id}</code>. Owns the client timeout and retry policy for the whole path. Stateless. All three SLOs are defined at this boundary, because it is the only place that sees what a user sees.</td></tr>
+    <tr><td class="t-id">orders-svc</td><td class="t-num">8001</td><td>Reads catalog and price from Redis with a Postgres fallback, writes orders and line items, calls payments, enqueues a fulfillment job. Owns the connection pool and the cache client.</td></tr>
+    <tr><td class="t-id">payments-svc</td><td class="t-num">8002</td><td><code>POST /payments</code> with an idempotency key. Calls the provider stub <em>through Toxiproxy</em>.</td></tr>
+    <tr><td class="t-id">worker</td><td class="t-num">&mdash;</td><td>Polls <code>jobs</code> with <code>FOR UPDATE SKIP LOCKED</code>, decrements inventory, marks orders <code>COMPLETE</code>, retries with backoff, dead-letters after N attempts. Never touches the request path.</td></tr>
+    <tr><td class="t-id">psp-stub</td><td class="t-num">8003</td><td>~30 lines. Returns a capture after a normal 40&ndash;80&nbsp;ms. Stands in for a real card processor.</td></tr>
+  </tbody>
+</table>
+
+<h3>Why this topology produces ambiguous failures</h3>
+
+<table class="t-tight">
+  <thead>
+    <tr><th style="width:33%">Cause lives in</th><th style="width:45%">Symptom appears on</th><th style="width:22%">Distance</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>orders-svc pool configuration</td><td>gateway 504s</td><td>2 hops</td></tr>
+    <tr><td>payment provider latency</td><td>gateway timeouts</td><td>3 hops</td></tr>
+    <tr><td>Redis cache configuration</td><td>Postgres CPU, then orders latency, then gateway p99</td><td>3 hops</td></tr>
+    <tr><td>A malformed order row</td><td><code>GET /orders/{id}</code> returns a stale <code>PENDING</code> — <strong>zero errors anywhere</strong></td><td>2 hops, invisible to error-rate SLOs</td></tr>
+    <tr><td>An orders-svc code commit</td><td>latency, but only in the large-basket traffic cohort</td><td>1 hop, under a traffic condition</td></tr>
+  </tbody>
+</table>
+
+<p>The last two matter most. The poison-message fault breaches a <em>freshness</em> SLO while availability and latency stay green — an agent that only knows how to read error rates fails it outright. The N+1 fault is invisible in aggregate p99 and only appears when metrics are segmented by basket size.</p>
+
+<h3>Traffic profile</h3>
+
+<p>A k6 profile runs continuously. Three of its properties are load-bearing for the fault catalog rather than decorative:</p>
+
+<ul>
+  <li><strong>Cohort split — 80% small baskets (1&ndash;3 items), 20% large (15&ndash;30).</strong> Tagged in k6 and carried as a header onto every log line and metric label across all five services. This is the sole reason the N+1 regression is detectable.</li>
+  <li><strong>Diurnal shape — a sine multiplier between 0.6&times; and 1.6&times; over a 30-minute synthetic "day".</strong> Baselines are non-flat, so naive threshold detection visibly fails where burn-rate detection works. A flat baseline would make the detector look better than it is.</li>
+  <li><strong>A deliberate error floor — 2% of requests use an invalid payment method.</strong> Without a steady non-zero error rate, any error at all is trivially the incident and the agent never has to reason about a delta.</li>
+</ul>
+
+<div class="kpis">
+  <div class="kpi"><div class="v">13<span style="font-size:11pt;font-weight:600"> rps</span></div><div class="l">Sustained request rate</div></div>
+  <div class="kpi"><div class="v">6.7<span style="font-size:11pt;font-weight:600">M</span></div><div class="l">Log lines per day</div></div>
+  <div class="kpi"><div class="v">1.5<span style="font-size:11pt;font-weight:600"> GB</span></div><div class="l">Raw logs per day, pre-compression</div></div>
+  <div class="kpi"><div class="v">100<span style="font-size:11pt;font-weight:600">%</span></div><div class="l">Trace sampling</div></div>
+</div>
+
+<!-- ============================== OBSERVABILITY ============================== -->
+<h2><span class="num">05</span>Observability</h2>
+
+<p class="lede">Every component is free and self-hosted. The stack exists to be <em>queried by the agent</em>, which changes what matters about it.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:16%">Signal</th><th style="width:24%">Tool</th><th>Why this one</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Logs</td><td><strong>Loki</strong>, single binary, filesystem, 24h retention</td><td>Label-based and cheap, and its aggregation API is exactly what statistics-first log analysis needs.</td></tr>
+    <tr><td>Log shipping</td><td><strong>Grafana Alloy</strong></td><td>Reads container stdout via Docker service discovery. No agent inside the application.</td></tr>
+    <tr><td>Metrics</td><td><strong>Prometheus</strong>, 10s scrape, 48h retention</td><td>Burn-rate detection needs recording rules, which is Prometheus' home turf.</td></tr>
+    <tr><td>Traces</td><td><strong>Tempo</strong>, 24h, 100% sampling</td><td>Trace-by-ID lookup from a <code>trace_id</code> lifted out of a log line is the highest-value path in the evidence layer.</td></tr>
+    <tr><td>Instrumentation</td><td><strong>OpenTelemetry</strong> + FastAPI / psycopg / redis / httpx auto-instrumentation</td><td>Free, and gives cross-service span linkage for nothing.</td></tr>
+    <tr><td>DB internals</td><td><code>postgres_exporter</code>, <code>redis_exporter</code></td><td>Supplies the discriminator between the two cache-degradation faults.</td></tr>
+    <tr><td>Container state</td><td><strong>cAdvisor</strong></td><td>Restart counts, OOM kills, per-container CPU and memory. Backs <code>runtime_state()</code>.</td></tr>
+    <tr><td>Chaos</td><td><strong>Toxiproxy</strong></td><td>The only free tool that does clean layer-4 fault injection.</td></tr>
+    <tr><td>Our own debugging</td><td><strong>Grafana</strong></td><td>For the engineers, not part of the product. sherLOG must never query Grafana.</td></tr>
+  </tbody>
+</table>
+
+<h3>The log schema, and the two rules everything depends on</h3>
+
+<pre>{
+  <span class="k">"ts"</span>: "2026-08-15T14:32:07.412Z",  <span class="k">"level"</span>: "ERROR",
+  <span class="k">"service"</span>: "orders-svc",  <span class="k">"commit_sha"</span>: "a3f9c21",  <span class="k">"config_hash"</span>: "7d21e0",
+  <span class="k">"trace_id"</span>: "4bf92f3577b34da6a3ce929d0e0e4736",  <span class="k">"span_id"</span>: "00f067aa0ba902b7",
+  <span class="k">"event"</span>: "db.acquire.timeout",  <span class="k">"route"</span>: "POST /orders",  <span class="k">"cohort"</span>: "large",
+  <span class="k">"duration_ms"</span>: 3021,
+  <span class="k">"attrs"</span>: {"pool_size": 3, "waiters": 14},
+  <span class="k">"msg"</span>: "connection acquisition timed out after 3000ms"
+}</pre>
+
+<p><strong>1. <code>event</code> is a stable dotted enum, never an interpolated string.</strong> Variable data goes in <code>attrs</code>. This makes log templating near-perfect rather than merely good, and it is what makes "this template has never been seen before" a trustworthy signal instead of a noise generator. The shared logging library rejects any event not declared in its enum, so the discipline is enforced at the call site rather than in review.</p>
+
+<p><strong>2. <code>commit_sha</code> and <code>config_hash</code> appear on every single line.</strong> These are what let the agent correlate a log to a deploy or a configuration change without a join. Three of the six v1 faults are solvable largely because of the config hash: it is what separates "this service's configuration moved" from "this service is a victim of something upstream".</p>
+
+<div class="note">
+  <span class="label">A decision that looks small and is not</span>
+  <p>Loki labels are <code>service</code> and <code>level</code> <em>only</em>. Everything else stays in the JSON body and is extracted at query time. High-cardinality labels — <code>trace_id</code> above all — are the standard way people destroy a Loki installation, and at 78 lines per second it would happen within a day.</p>
+</div>
+
+<h3>The three SLOs</h3>
+
+<p>Deliberately chosen so that <strong>each fault breaches a different one</strong>. If every fault breached availability, the evaluation would only ever exercise one detection path.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:20%">SLO</th><th style="width:44%">Definition</th><th style="width:12%">Target</th><th>Breached by</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Availability</strong></td><td>Non-5xx share of <code>/checkout</code> requests</td><td class="t-num">99.0%</td><td class="t-id">F-03, F-04</td></tr>
+    <tr><td><strong>Latency</strong></td><td>Share of <code>/checkout</code> requests under 1200&nbsp;ms</td><td class="t-num">99.0%</td><td class="t-id">F-01, F-02, F-05</td></tr>
+    <tr><td><strong>Freshness</strong></td><td>Share of orders reaching <code>COMPLETE</code> within 60&nbsp;s</td><td class="t-num">99.0%</td><td class="t-id">F-06 only</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================== DETECTION ============================== -->
+<h2><span class="num">06</span>Autonomous detection</h2>
+
+<p class="lede">"Autonomous" has to mean something specific and observable, not "we run it on a cron".</p>
+
+<p>Detection uses <strong>multi-window, multi-burn-rate</strong> alerting, following the Google SRE workbook. Burn rate — how fast the error budget is being consumed relative to the rate that would exhaust it exactly at the end of the window — fixes both failure modes of a static threshold at once: paging on a harmless spike, and staying silent through a slow bleed.</p>
+
+<p>Each alert pairs a long window (does this represent real budget consumption?) with a short one (is it still happening right now?). Both must be burning. The short window is what stops an alert hanging around for an hour after the incident is over, which is how teams learn to ignore alerts.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:20%">Alert</th><th>Long window</th><th>Short window</th><th>Burn rate</th><th>Budget consumed</th><th>Fires within</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Fast burn</strong></td><td class="t-num">5 min</td><td class="t-num">30 s</td><td class="t-num">14.4&times;</td><td class="t-num">2%</td><td class="t-num">~45&ndash;75 s</td></tr>
+    <tr><td><strong>Slow burn</strong></td><td class="t-num">30 min</td><td class="t-num">3 min</td><td class="t-num">6&times;</td><td class="t-num">5%</td><td class="t-num">~10 min</td></tr>
+  </tbody>
+</table>
+
+<div class="note warn">
+  <span class="label">Stated demo compression</span>
+  <p>The error budget is <strong>6 hours rolling, not 30 days</strong>. A 30-day budget cannot burn 2% inside a 90-second demonstration. This compression is declared out loud in the writeup, because the alternative — quietly substituting a static threshold while still calling it burn-rate detection — would be the dishonest version of the same demo.</p>
+</div>
+
+<h3>Correlation before investigation</h3>
+
+<p>One fault fires many alerts. A saturated connection pool breaches availability at the gateway and latency at orders-svc within seconds of each other. Without correlation, the engine opens four investigations into one root cause and pays four times to reach the same verdict.</p>
+
+<p>Alerts are grouped by temporal proximity, and the resulting <strong>noise-reduction ratio is a real number the project reports</strong> rather than a claim it makes. Topology adjacency and signal similarity are the two obvious next axes; the incident boundary is already the right seam for them.</p>
+
+<h3>The autonomy loop</h3>
+
+<pre>detector fires → correlate → dedupe against open incidents
+  → create Incident (status=OPEN)
+  → enqueue Investigation
+  → engine picks up, runs to completion
+  → verdict published, incident annotated
+  → if unresolved after N minutes, re-investigate with widened scope</pre>
+
+<p>Everything after <code>detector fires</code> runs with zero human input. <strong>The frontend observes; it does not drive.</strong></p>
+
+<!-- ============================== EVIDENCE ============================== -->
+<h2><span class="num">07</span>The evidence layer</h2>
+
+<p class="lede">Seven deterministic tools, not forty-five. No model appears anywhere in this plane.</p>
+
+<p>Every tool returns a typed <code>Evidence</code> object. The model never sees a raw untyped blob, and every evidence object reaches a prompt only through the redaction gate.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:24%">Tool</th><th style="width:14%">Backend</th><th>Contract</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="t-id">log_stats</td><td>Loki</td><td><strong>Always called before sampling.</strong> Aggregation over the window, then template clustering. Returns per-template counts, the delta against the same window 24h prior, and a novelty flag for templates absent from the prior 7 days. <em>Never returns raw lines.</em></td></tr>
+    <tr><td class="t-id">log_sample</td><td>Loki</td><td>At most 50 lines matching one template. The cap is enforced in code, not requested in the prompt.</td></tr>
+    <tr><td class="t-id">metric_query</td><td>Prometheus</td><td>Executes PromQL, downsamples to ≤120 points, and attaches the same query shifted 24h as a baseline plus a computed delta.</td></tr>
+    <tr><td class="t-id">trace_search</td><td>Tempo</td><td>Slow exemplars as a span-duration breakdown rather than full trace JSON. Also resolves a <code>trace_id</code> lifted from a log line.</td></tr>
+    <tr><td class="t-id">git_diff_since</td><td>Postgres + git</td><td>Rows from the <code>deployments</code> table in the window, joined to real <code>git show</code> output, truncated per file.</td></tr>
+    <tr><td class="t-id">runtime_state</td><td>cAdvisor + Docker</td><td>Restart count, OOM kills, current CPU and memory, and the <strong>current config hash with the time it last changed</strong>.</td></tr>
+    <tr><td class="t-id">doc_search</td><td>Postgres + pgvector</td><td>Hybrid retrieval — BM25 plus dense embeddings with reciprocal-rank fusion — over a hand-written corpus of 5 runbooks, 3 architecture documents, 2 ADRs and 3 past postmortems. Tier-gated.</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <span class="label">The generalisation seam</span>
+  <p>These seven tools are the <em>entire</em> interface between sherLOG and any monitored system. Swapping Loki for CloudWatch, or Prometheus for Datadog, means reimplementing seven functions behind an unchanged signature — the investigation engine is not touched. A test asserts that the engine never imports application code, so this boundary cannot erode by accident.</p>
+</div>
+
+<h3>Log volume is the risk that would kill this project</h3>
+
+<p>At 6.7 million lines per day, no context window survives contact with raw logs. The answer is <strong>statistics before sampling</strong>: cluster lines into templates, show the agent</p>
+
+<pre>template T-014: 4,200 occurrences, up 340% vs baseline
+template T-091:    12 occurrences, <span class="k">NEVER SEEN BEFORE</span></pre>
+
+<p>and let it request samples of the specific templates that matter. Templates are ranked by investigative interest rather than by raw frequency, because the highest-count template is almost always a healthy access log — ranking by count would bury the one line that matters under the four thousand that do not.</p>
+
+<p>Crucially, <strong>templating runs continuously rather than on demand</strong>. A background job maintains a 7-day rolling template table, so <code>log_stats</code> at investigation time is a table read rather than a batch job — and "never seen before" means "absent from seven days of history", which is a claim the project can stand behind, rather than "absent from however much history we happened to fetch".</p>
+
+<!-- ============================== ENGINE ============================== -->
+<h2><span class="num">08</span>The investigation engine</h2>
+
+<p class="lede">A staged state machine over an explicit hypothesis ledger — deliberately <em>not</em> an open-ended ReAct loop.</p>
+
+<p>Unbounded agent loops wander, burn budget, and produce confident nonsense. More importantly, they leave behind no artifact anyone can audit afterwards. What replaces one here is six stages over a ledger that is persisted, queryable, and rendered directly in the interface.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:16%">Stage</th><th style="width:13%">Model role</th><th>Purpose</th><th style="width:22%">Exit condition</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>1. Triage</strong></td><td>fast</td><td>Classify the incident, identify blast radius, pick candidate services</td><td>Scope defined</td></tr>
+    <tr><td><strong>2. Hypothesize</strong></td><td>reasoning</td><td>Generate 3&ndash;5 competing hypotheses <strong>with falsifiable predictions</strong>, seeded by document retrieval and past similar incidents</td><td>≥3 hypotheses, each with predictions</td></tr>
+    <tr><td><strong>3. Gather</strong></td><td>fast, parallel</td><td>One isolated subagent per hypothesis; each returns structured findings only</td><td>All tested, or budget reached</td></tr>
+    <tr><td><strong>4. Verify</strong></td><td>reasoning</td><td>Update posteriors from evidence; refute what is refuted</td><td>One dominant, or all weak</td></tr>
+    <tr><td><strong>5. Critic</strong></td><td>reasoning, fresh context</td><td>Adversarial: "here is the conclusion and its evidence — argue it is wrong, and name a better explanation"</td><td>Critic verdict recorded</td></tr>
+    <tr><td><strong>6. Report</strong></td><td>balanced</td><td>Causal chain, cited claims, proposed fix, confidence</td><td>Passes the citation validator</td></tr>
+  </tbody>
+</table>
+
+<h3>The ledger, and the single highest-leverage constraint in the design</h3>
+
+<p>Each hypothesis carries a statement, a list of <code>predicted_signals</code>, its supporting and contradicting evidence, a status, and a posterior.</p>
+
+<p><code>predicted_signals</code> are written <strong>during Hypothesize, before any evidence is gathered for that hypothesis</strong>. That single ordering constraint is what converts the model from a narrator — which will always find a story that fits whatever it was shown — into a falsifier. If a pre-registered signal is later checked and found absent, the hypothesis is refuted <em>mechanically</em>, and no amount of fluent prose talks it back. The ledger rejects any hypothesis that registers no predictions at all, because an unfalsifiable hypothesis cannot be scored.</p>
+
+<h3>How the final decision is actually made</h3>
+
+<p>This is the part that most distinguishes the system from a wrapper, so it is specified exactly.</p>
+
+<p><strong>The model labels; the code computes.</strong> Language models are good at judging whether a piece of evidence supports a claim and bad at arithmetic over many such judgments — asking one for a final confidence number produces a fluent guess. So the model never emits a posterior. It emits a discrete label per (hypothesis, evidence) pair, plus one sentence of rationale that the interface displays:</p>
+
+<table style="width:70%">
+  <thead><tr><th>Verdict label</th><th>Weight (nats)</th></tr></thead>
+  <tbody>
+    <tr><td><code>STRONG_SUPPORT</code></td><td class="t-num">+1.4</td></tr>
+    <tr><td><code>WEAK_SUPPORT</code></td><td class="t-num">+0.5</td></tr>
+    <tr><td><code>NEUTRAL</code></td><td class="t-num">0.0</td></tr>
+    <tr><td><code>WEAK_REFUTE</code></td><td class="t-num">&minus;0.5</td></tr>
+    <tr><td><code>STRONG_REFUTE</code></td><td class="t-num">&minus;1.4</td></tr>
+    <tr><td><code>DECISIVE_REFUTE</code></td><td class="t-num">&minus;4.0</td></tr>
+  </tbody>
+</table>
+
+<p>Code maps labels to fixed log-likelihood ratios and updates in log-odds from a uniform prior, then normalises across open hypotheses. <strong>Three guards protect the arithmetic</strong>, each closing a specific way confidence gets inflated:</p>
+
+<ul>
+  <li><strong>Deduplication.</strong> Each evidence ID contributes to a hypothesis at most once. Evidence IDs are content addresses — a hash of the query and time range — so two subagents issuing the same query produce the same ID, and this check is exact rather than best-effort.</li>
+  <li><strong>Correlated-evidence cap.</strong> Total weight from a single evidence <em>kind</em> toward one hypothesis is clamped to &plusmn;2.0. Ten log lines saying the same thing are one fact; without this clamp the log tool alone drives any hypothesis to certainty from a single angle.</li>
+  <li><strong>Mechanical falsification.</strong> A missing pre-registered signal is not a model judgment. If the evidence layer checks a predicted signal and finds it absent, code applies a fixed penalty with no model in the loop — deliberately <em>outside</em> the cap, because a failed prediction is not correlated evidence, it is the hypothesis being wrong about itself.</li>
+</ul>
+
+<h3>The outcome gate</h3>
+
+<p>Pure code. No model is asked what the outcome should be.</p>
+
+<pre><span class="k">if</span> budget_exhausted:        <span class="k">return</span> INSUFFICIENT_EVIDENCE(reason="budget")
+<span class="k">if</span> unverified_claims > 0:   mark PARTIALLY_VERIFIED, cap confidence at 0.70
+<span class="k">if</span> top.posterior >= 0.80 <span class="k">and</span> margin >= 0.25 <span class="k">and</span> critic == "CONCUR":
+                            <span class="k">return</span> CONFIRMED
+<span class="k">if</span> top.posterior >= 0.55:   <span class="k">return</span> LIKELY        <span class="c"># capped at 0.79 if the critic dissents</span>
+                            <span class="k">return</span> INSUFFICIENT_EVIDENCE(reason="low_confidence")</pre>
+
+<p>The <strong>margin requirement</strong> — the gap between the leading hypothesis and the runner-up — is what makes the confusable fault pairs scientifically meaningful. If two competing explanations both sit near 0.5 because the agent never fetched the signal that separates them, the margin fails and the system abstains instead of coin-flipping. Abstention there is the <em>correct</em> behaviour, and it is only reachable because confidence is computed rather than asserted.</p>
+
+<h3>The budget governor</h3>
+
+<p>Hard caps, enforced in code and checked <em>before</em> every model call rather than after — checking afterwards means the cap is always breached by exactly one call, and for a reasoning-tier call that is the expensive one.</p>
+
+<div class="kpis">
+  <div class="kpi"><div class="v">250<span style="font-size:11pt;font-weight:600">k</span></div><div class="l">Tokens per investigation</div></div>
+  <div class="kpi"><div class="v">40</div><div class="l">Tool calls</div></div>
+  <div class="kpi"><div class="v">8<span style="font-size:11pt;font-weight:600"> min</span></div><div class="l">Wall clock</div></div>
+  <div class="kpi"><div class="v">$0.60</div><div class="l">Cost per investigation</div></div>
+</div>
+
+<p>Breaching any cap exits through the budget branch of the outcome gate with partial findings attached &mdash; <strong>never a guess</strong>. Cost is logged per investigation and displayed in the interface.</p>
+
+<!-- ============================== GROUNDING ============================== -->
+<h2><span class="num">09</span>The grounding stack</h2>
+
+<p class="lede">Five layers. The first three are mechanical, and that is the point: <strong>do not use a language model to check a language model as the primary defence.</strong></p>
+
+<h4>Layer 1 — Structured output, always</h4>
+<p>Every stage returns a JSON schema. No free-text parsing anywhere.</p>
+
+<h4>Layer 2 — Citation binding</h4>
+<p>Every claim in a report carries the IDs of the evidence licensing it, enforced by schema.</p>
+
+<h4>Layer 3 — Programmatic citation verification</h4>
+<p>The headline guardrail. Four deterministic checks against every claim:</p>
+
+<table>
+  <thead><tr><th style="width:34%">Check</th><th>Catches</th></tr></thead>
+  <tbody>
+    <tr><td><code>MISSING_EVIDENCE</code></td><td>Cited IDs absent from this investigation's evidence store — <strong>fabricated citations</strong></td></tr>
+    <tr><td><code>TEMPORAL_MISMATCH</code></td><td>A claimed timestamp outside every cited window — <strong>temporal fabrication</strong></td></tr>
+    <tr><td><code>NUMBER_NOT_FOUND</code></td><td>A figure in the claim appearing in no cited evidence within tolerance — <strong>invented numbers</strong></td></tr>
+    <tr><td><code>ENTITY_NOT_FOUND</code></td><td>A service, commit or component named but absent from the cited evidence — <strong>invented entities</strong></td></tr>
+  </tbody>
+</table>
+
+<p>Claims that fail are stripped, and the investigation is marked <code>PARTIALLY_VERIFIED</code>. The strip-rate is logged and reported. <em>"3.2% of generated claims failed citation verification and were removed"</em> is a measurement; <em>"we prompt it not to hallucinate"</em> is a hope.</p>
+
+<h4>Layer 4 — Adversarial critic</h4>
+<p>Fresh context, sees only the conclusion and its evidence, instructed to falsify. Disagreement caps the final confidence and blocks confirmation outright.</p>
+
+<h4>Layer 5 — Calibrated abstention</h4>
+<p><code>INSUFFICIENT_EVIDENCE</code> is a <strong>success state</strong>, and it is reachable in the demo by design. A system that never says <em>I don't know</em> is a system that hallucinates, and any competent reviewer knows it.</p>
+
+<!-- ============================== SECURITY ============================== -->
+<h2><span class="num">10</span>Security architecture</h2>
+
+<p class="lede">Four mechanisms, each enforced structurally rather than by discipline.</p>
+
+<h3>1. The redaction gate as a type boundary</h3>
+
+<p>Every evidence object passes through redaction <em>before</em> it can enter a model context. This is enforced architecturally: the LLM client accepts only <code>RedactedEvidence</code>, and only the gate can construct one. The type system does the enforcement, so no future contributor can accidentally route around it — and a test asserts that direct construction fails.</p>
+
+<p>Detection runs in two passes. Named regexes cover known formats (cloud keys, JWTs, connection strings, private key blocks, bearer tokens, emails, card patterns). A Shannon-entropy pass then catches secrets with no known pattern. Redaction <strong>preserves the type</strong> — <code>[REDACTED:aws_key]</code> — so the agent can still reason that credentials appear at a point in time without seeing the value.</p>
+
+<div class="note">
+  <span class="label">A subtlety worth naming</span>
+  <p>The entropy pass is gated on charset diversity so that trace IDs, span IDs and commit SHAs survive. A gate that eats <code>trace_id</code> is worse than no gate: it silently removes the field that links a log line to its trace, and the failure mode is a system that quietly gets worse at its job with nobody able to say why.</p>
+</div>
+
+<h3>2. Canary secrets</h3>
+
+<p>A known fake secret is planted in a log line, a configuration value, and a corpus document. CI asserts that this string <strong>never</strong> appears in any outbound model payload, on every build. A green canary test on screen is worth more than three paragraphs about security posture.</p>
+
+<h3>3. Egress credential broker</h3>
+
+<p>The agent process holds <strong>no</strong> credentials. Tools call a broker that owns them, validates the calling tool's identity, applies allowlists and per-tool rate limits, and returns only results.</p>
+
+<h3>4. Document classification tiers, and prompt-injection containment</h3>
+
+<p>Every ingested document carries a tier of <code>public</code>, <code>internal</code> or <code>restricted</code>. Retrieval is tier-gated; restricted chunks return a <em>reference only</em> — "see runbook RB-14 §3, access required" — rather than content. Retrieval over corporate documents is a data-exfiltration surface, and the design treats it as one.</p>
+
+<p>Logs are attacker-controlled input: anyone able to influence a log line can write <em>"IGNORE PRIOR INSTRUCTIONS"</em> into one. Three layers respond. Instruction-shaped patterns are neutralised at the gate. All evidence is wrapped in delimiters with an explicit untrusted-data preamble. And, load-bearingly, <strong>the agent has no write capability at all</strong> — it reads and reports. The blast radius of a successful injection is a bad report, never a bad <code>kubectl delete</code>.</p>
+
+<!-- ============================== FAULT CATALOG ============================== -->
+<h2 class="page-break"><span class="num">11</span>The fault catalog</h2>
+
+<p class="lede">Six injectable faults, two decoys, one abstention case. This is the project's most valuable artifact.</p>
+
+<p>The architecture document targets roughly 15 faults. <strong>v1 cuts to six.</strong> The reasoning: fault count buys <em>evaluation sample size</em>, not <em>system capability</em>, and sample size is worthless until the pipeline is correct. Six faults spanning four reasoning shapes exercise every mechanism in the design. Faults 7 through 15 are then a data-entry exercise, not an engineering one.</p>
+
+<p>The six are chosen so that <strong>two pairs are mutually confusable</strong> — which is where the actual scientific content of the evaluation lives.</p>
+
+<table>
+  <thead>
+    <tr><th style="width:8%">ID</th><th style="width:22%">Name</th><th style="width:13%">Class</th><th style="width:11%">Mechanism</th><th>Root cause</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="t-id">F-01</td><td>cache_ttl_collapse</td><td>config</td><td>config patch</td><td>Catalog cache TTL set to zero; every read misses and falls through to Postgres. <strong>No errors at all.</strong></td></tr>
+    <tr><td class="t-id">F-02</td><td>redis_eviction_storm</td><td>dependency</td><td>config patch</td><td>Redis <code>maxmemory</code> shrunk until the working set no longer fits and keys evict continuously.</td></tr>
+    <tr><td class="t-id">F-03</td><td>db_pool_exhaustion</td><td>resource</td><td>config patch</td><td>Connection pool reduced to three; concurrent checkouts queue on acquisition until they time out.</td></tr>
+    <tr><td class="t-id">F-04</td><td>psp_latency_injection</td><td>dependency</td><td>chaos</td><td>Payment provider latency raised to ~1.5&nbsp;s; orders handlers block while holding connections.</td></tr>
+    <tr><td class="t-id">F-05</td><td>n_plus_one_regression</td><td>code</td><td>git commit</td><td>A real commit replaces a joined catalog query with a per-item loop; only large baskets degrade.</td></tr>
+    <tr><td class="t-id">F-06</td><td>poison_message_backlog</td><td>data + code</td><td>data + git</td><td>A refactor removes the dead-letter path; one bad job retries forever and blocks the queue head.</td></tr>
+    <tr><td class="t-id">F-07</td><td>observability_blind_spot</td><td>observability</td><td>config patch</td><td>Log shipping stopped, then a mild latency toxic applied. <strong>Correct answer: abstain.</strong></td></tr>
+    <tr><td class="t-id">D-1</td><td>mild_redis_latency</td><td>decoy</td><td>chaos</td><td>A real, measurable, harmless 15&nbsp;ms toxic. Must never be blamed.</td></tr>
+    <tr><td class="t-id">D-2</td><td>benign_deploy</td><td>decoy</td><td>git commit</td><td>A real commit touching only log strings and a README, deployed into the incident window.</td></tr>
+  </tbody>
+</table>
+
+<h3>The two confusable pairs</h3>
+
+<table>
+  <thead>
+    <tr><th style="width:26%">Pair</th><th style="width:34%">Identical symptom</th><th>Separated only by</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>F-01 vs F-02</strong><br><span style="color:var(--ink-faint)">cache degradation</span></td>
+      <td>Cache misses up, Postgres load up, gateway p99 breaches the latency SLO, zero errors throughout</td>
+      <td>Whether <code>redis_evicted_keys_total</code> is climbing or <strong>flat</strong>, and <em>which service's</em> config hash moved</td>
+    </tr>
+    <tr>
+      <td><strong>F-03 vs F-04</strong><br><span style="color:var(--ink-faint)">saturation</span></td>
+      <td>Pool waiters elevated, gateway 504s, availability budget burning fast</td>
+      <td>Whether the payment provider's upstream duration is elevated, and whether the pool configuration <strong>actually changed</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note warn">
+  <span class="label">The trap in F-04</span>
+  <p>F-04 elevates pool waiters <em>too</em>, because blocked handlers hold their connections while waiting on payments. An agent that stops at "the pool is exhausted" gets the proximate service right and the root cause wrong. Ground truth records both <code>proximate_service</code> and <code>originating_component</code> separately, and they are scored separately — collapsing them into "did it find the right service" would hide the exact distinction the fault was built to test.</p>
+</div>
+
+<h3>Two design details that matter enormously</h3>
+
+<p><strong>Every injection mechanism is real.</strong> No fault is implemented as <code>if FAULT_FLAG: sleep()</code> inside application code. Config faults rewrite the environment and force a container restart, producing a genuine config-hash change. Code regressions apply a pre-authored patch, commit it with a plausible message and author, rebuild the image, redeploy, and write a row to the <code>deployments</code> table. Dependency faults are layer-4 toxics on real network hops. That shortcut would make git correlation and config-diff reasoning fraudulent — the agent would be "discovering" something it was handed — and a technical reviewer spots it immediately.</p>
+
+<p><strong>Decoys run as background noise.</strong> D-2 is the more valuable of the two: <em>"there was a deploy right before the incident"</em> is the single most seductive false correlation in real on-call work, and an agent that blames it is doing exactly what a junior does at 3&nbsp;a.m. D-2 is <strong>always</strong> injected alongside F-05, so the agent must pick the right commit rather than merely the right time window.</p>
+
+<h3>The abstention case</h3>
+
+<p>F-07 stops log shipping for payments-svc, then applies a mild latency toxic. Metrics show the service degrading; there are no logs and no traces from the window to establish why. The correct output is <code>INSUFFICIENT_EVIDENCE</code> carrying a stated partial finding — <em>"payments-svc is the proximate service; log evidence is unavailable for this window"</em> — rather than a guess.</p>
+
+<p><span class="tag ok">Success state</span> &nbsp;This is the only fault where a confident, well-argued answer is scored as a <strong>failure</strong>. It must be in the demo.</p>
+
+<h3>Ground-truth record</h3>
+
+<p>One YAML file per fault, carrying the injection recipe, the root cause, the proximate service, the originating component, the causal chain, the correct class of fix, and the expected signals. One field is worth highlighting:</p>
+
+<pre>known_misdiagnosis: <span class="k">"db_pool_exhaustion"</span>   <span class="c"># scored explicitly</span></pre>
+
+<p>This turns "wrong answer" into "wrong answer <em>in the specific way we predicted</em>", which is a far more informative evaluation metric than a binary.</p>
+
+<h3>Isolation of ground truth</h3>
+
+<p>Ground truth lives in a separate Postgres database owned by an <code>injector</code> role. The investigation engine connects as an <code>agent</code> role which holds <strong>no grant on that database at all</strong> — not "cannot SELECT", but cannot connect. A CI test asserts the connection fails. A separate database rather than a separate schema, because schema-level separation inside one database leaves a single misplaced <code>GRANT</code> between the engine and the answers.</p>
+
+<div class="note warn">
+  <span class="label">A second leakage path, easy to miss</span>
+  <p>The agent's own traces must never land where the agent can read them. If sherLOG's spans went to the same trace store it queries as evidence, it could retrieve its own reasoning as "evidence" about the target system — a closed loop that reads exactly like corroboration — and the injector's spans could leak ground truth by the same route. Mitigation: a <strong>separate trace store for sherLOG's own telemetry</strong>, plus a hard filter in the trace tool as a second layer. Both are asserted by test.</p>
+</div>
+
+<!-- ============================== REASONING STACK ============================== -->
+<h2><span class="num">12</span>The reasoning stack</h2>
+
+<h3>Framework decision: no orchestration framework</h3>
+
+<p>The engine uses the provider SDK directly, with Pydantic for schemas and a hand-written state machine. No LangChain, no LangGraph, no CrewAI, no AutoGen.</p>
+
+<p>The reasoning is short. The design commits to a staged state machine with a hypothesis ledger and explicitly rejects open-ended ReAct. Agent frameworks earn their keep by supplying exactly the thing this project has decided not to build — a dynamic tool-calling loop with memory and routing. What is actually needed is six functions that each take typed input, call one model with one schema, and return typed output. That is roughly 300 lines of our own code, and every line is inspectable at 2&nbsp;a.m. when a stage misbehaves.</p>
+
+<p>There is a second reason, specific to this project. The thesis is verifiability. Every intermediate artifact — evidence IDs, predicted signals, per-evidence verdicts, posterior updates — has to be persisted, queryable, and rendered in the interface. Frameworks hold that state in their own abstractions and offer a callback surface to get it back out. The time saved on orchestration would be spent fighting to extract the ledger, and we would still not own the schema.</p>
+
+<table>
+  <thead><tr><th style="width:22%">Rejected</th><th>Why not, specifically</th></tr></thead>
+  <tbody>
+    <tr><td><strong>LangChain</strong></td><td>Its value is the integration surface — loaders, retrievers, 100+ tool wrappers. This project has exactly seven tools, all bespoke, all querying systems we run ourselves. We would import a large dependency, use ~2% of it, and inherit its abstraction churn.</td></tr>
+    <tr><td><strong>LangGraph</strong></td><td>The closest call and a legitimate choice — the design <em>is</em> a state graph. Rejected because the graph is linear with two loop-backs, and node-level state persistence has to exist in our own schema anyway, so the built-in checkpointer buys nothing. <strong>If this later goes multi-agent-dynamic, this is the migration target.</strong></td></tr>
+    <tr><td><strong>CrewAI / AutoGen</strong></td><td>Built around conversational multi-agent delegation. These subagents do not converse; they are isolated function calls returning a fixed schema.</td></tr>
+    <tr><td><strong>DSPy</strong></td><td>Genuinely interesting for prompt optimisation and the wrong shape for an 8-week build — it wants a training set that does not exist until the evaluation harness does. Noted as v2 work: with 200 scored runs, DSPy over the hypothesize stage is a real experiment.</td></tr>
+  </tbody>
+</table>
+
+<h3>Model routing and the fallback ladder</h3>
+
+<p>Stages are routed by role. Concrete model IDs live in a pinned configuration file and are <strong>dated versions, never floating aliases</strong> — a provider silently updating the model behind an alias mid-project would invalidate every accuracy trend line, and there would be no way to distinguish that from a real regression. The model ID is an experimental variable and is treated as one: changes get a row in a version table and a vertical line on the accuracy chart.</p>
+
+<table>
+  <thead><tr><th style="width:26%">Stage</th><th style="width:20%">Role</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td>Triage</td><td>fast</td><td>Classification against a fixed taxonomy. No reasoning required.</td></tr>
+    <tr><td>Hypothesize</td><td>reasoning</td><td>Determines the ceiling on everything downstream. Spend here.</td></tr>
+    <tr><td>Gather (per subagent)</td><td>fast</td><td>Tool selection and summarisation into a fixed schema.</td></tr>
+    <tr><td>Evidence assessment</td><td>fast</td><td>Labelling one evidence item against one hypothesis. High call volume, narrow task.</td></tr>
+    <tr><td>Verify</td><td>reasoning</td><td>Reconciling contradictory evidence.</td></tr>
+    <tr><td>Critic</td><td>reasoning, fresh context</td><td>Adversarial falsification is the hardest prompt in the system.</td></tr>
+    <tr><td>Report</td><td>balanced</td><td>Writing to a schema from already-settled conclusions.</td></tr>
+    <tr><td>Evaluation judge</td><td>reasoning, different rung from Report</td><td>See §13.</td></tr>
+  </tbody>
+</table>
+
+<p>The fallback ladder handles transient errors with exponential backoff, schema-validation failures with one re-ask carrying the validation error, and persistent unavailability by downgrading one rung — <strong>and tagging the investigation <code>degraded=true</code></strong>.</p>
+
+<div class="note">
+  <span class="label">The tag is the important part</span>
+  <p>Any run with <code>degraded=true</code> is excluded from headline accuracy and reported as a separate line. A run that silently fell back to a weaker model is a different experiment, and averaging it into the results is how honest projects produce dishonest numbers.</p>
+</div>
+
+<h3>Determinism, caching, and three run modes</h3>
+
+<p>Temperature zero and a fixed seed on every call. This reduces variance without eliminating it, so every fault is run three times and reported as mean ± spread. Evidence is cached by content address; model responses are cached by a hash of model, messages and schema.</p>
+
+<table>
+  <thead><tr><th style="width:16%">Mode</th><th style="width:20%">Evidence</th><th style="width:20%">Model calls</th><th>Used for</th></tr></thead>
+  <tbody>
+    <tr><td><code>live</code></td><td>real backends</td><td>real</td><td>Demonstrations, weekly evaluation</td></tr>
+    <tr><td><code>replay</code></td><td>recorded fixtures</td><td>real</td><td>Nightly evaluation — no running target system needed</td></tr>
+    <tr><td><code>frozen</code></td><td>recorded fixtures</td><td>cached</td><td>Every commit in CI, <strong>$0</strong></td></tr>
+  </tbody>
+</table>
+
+<p><code>frozen</code> mode is what makes CI affordable. The citation verifier, the posterior arithmetic, the redaction gate, the detectors and the outcome gate are all deterministic and are most of the thesis — so they get real test coverage on every push rather than a nightly that costs money and is therefore eventually skipped.</p>
+
+<!-- ============================== EVALUATION ============================== -->
+<h2><span class="num">13</span>Evaluation</h2>
+
+<p class="lede">This is what elevates the project from an impressive demo to an engineered system, and it is the part most comparable projects lack entirely.</p>
+
+<table>
+  <thead><tr><th style="width:26%">Metric</th><th style="width:12%">Judged by</th><th>Definition</th></tr></thead>
+  <tbody>
+    <tr><td><strong>RCA accuracy@1</strong></td><td>model + rubric</td><td>Does the top hypothesis state the ground-truth root cause?</td></tr>
+    <tr><td><strong>Service localization</strong></td><td>code</td><td>Exact match on <code>proximate_service</code></td></tr>
+    <tr><td><strong>Origin localization</strong></td><td>code</td><td>Exact match on <code>originating_component</code></td></tr>
+    <tr><td><strong>Causal chain F1</strong></td><td>model + rubric</td><td>Overlap of the stated chain against ground truth</td></tr>
+    <tr><td><strong>Evidence precision</strong></td><td>code</td><td>Share of cited claims passing programmatic verification</td></tr>
+    <tr><td><strong>Hallucination rate</strong></td><td>code</td><td>Claims failing verification ÷ total claims generated</td></tr>
+    <tr><td><strong>Decoy resistance</strong></td><td>code</td><td>Share of runs in which no decoy was named as a cause</td></tr>
+    <tr><td><strong>Abstention correctness</strong></td><td>code</td><td>Abstains on F-07; does not abstain on the other six</td></tr>
+    <tr><td><strong>MTTD / MTTR-diagnosis</strong></td><td>code</td><td>Injection→detection, and detection→verdict, in seconds</td></tr>
+  </tbody>
+</table>
+
+<h3>How not to fool ourselves with the judge</h3>
+
+<p>A model-based judge is the standard way projects like this quietly inflate their own numbers. Two mitigations:</p>
+
+<p><strong>Most metrics need no judge at all.</strong> Seven of the nine are exact string matches, set-membership checks, or outputs of the programmatic citation verifier. Only root-cause-text equivalence and causal-chain overlap need a model — so judge exposure is confined to two metrics out of nine.</p>
+
+<p><strong>Where a judge is used, it is audited.</strong> It runs at a different model rung than the Report stage used, receives the ground-truth record and a written rubric, and returns a structured verdict. Then <strong>20% of judged runs are hand-scored, and judge–human agreement is published as a headline number</strong>. If agreement falls below roughly 90%, the judge is not fit for purpose and the rubric is rewritten before any results derived from it are reported.</p>
+
+<p>The rubric is written in week 0, before any results exist. Grading generously is unconscious rather than dishonest — you look at an answer that is <em>nearly</em> right, and "nearly" quietly becomes "correct" because you know what the system was reaching for. The only defence is writing the definition down while you still have nothing to lose by making it strict.</p>
+
+<h3>The evaluation matrix</h3>
+
+<div class="kpis">
+  <div class="kpi"><div class="v">36</div><div class="l">Scored runs: 6 faults × 3 reps × 2 decoy conditions</div></div>
+  <div class="kpi"><div class="v">+3</div><div class="l">Runs of the abstention case</div></div>
+  <div class="kpi"><div class="v">3&times;</div><div class="l">Repetitions, reported as mean ± spread</div></div>
+  <div class="kpi"><div class="v">4</div><div class="l">Ablations: no-critic, no-docs, no-git, no-ledger</div></div>
+</div>
+
+<table>
+  <thead><tr><th style="width:16%">Tier</th><th style="width:20%">Cadence</th><th style="width:36%">Scope</th><th>Cost</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Commit</strong></td><td>every push</td><td><code>frozen</code> mode, deterministic layers only</td><td><strong>$0</strong></td></tr>
+    <tr><td><strong>Nightly</strong></td><td>daily</td><td>6-fault smoke, 1 rep each, <code>replay</code> mode</td><td>~$1.50</td></tr>
+    <tr><td><strong>Full</strong></td><td>weekly, final three weeks</td><td>the full 39-run matrix, <code>live</code></td><td>~$10</td></tr>
+  </tbody>
+</table>
+
+<h3>The four claims v1 is designed to defend with numbers</h3>
+
+<ol>
+  <li><strong>RCA accuracy overall</strong>, and specifically on the F-01/F-02 confusable pair, where a pattern-matching agent lands near 50%.</li>
+  <li><strong>Decoy resistance</strong> — the benign-deploy trap produces a clean number.</li>
+  <li><strong>Hallucination rate</strong>, via the citation-verification strip-rate.</li>
+  <li><strong>Correct abstention</strong> on F-07, and correct <em>non</em>-abstention on the other six.</li>
+</ol>
+
+<p>An ablation exists for each mechanism the design claims credit for, so that "the ledger helped" is a measured delta rather than an assertion. <em>"Accuracy went from 61% to 84% after we added the hypothesis ledger"</em> is the single most compelling sentence this project can produce — and it is only available because we own the environment.</p>
+
+<!-- ============================== FRONTEND ============================== -->
+<h2><span class="num">14</span>The frontend</h2>
+
+<p class="lede">Not a chat window. Everyone builds a chat window. This is an observation deck.</p>
+
+<table>
+  <thead><tr><th style="width:26%">View</th><th>What it shows</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Live investigation</strong><br><span style="color:var(--ink-faint)">the money screen</span></td>
+      <td>A timeline streaming over SSE: alert fired → hypotheses posted with confidence bars → evidence arriving and attaching to hypotheses → <strong>bars moving as posteriors update</strong> → hypotheses greying out as they are refuted → a final verdict with every claim expandable to its cited evidence. Watching confidence shift in real time makes the reasoning legible in a way no transcript can.</td>
+    </tr>
+    <tr>
+      <td><strong>Fault console</strong></td>
+      <td>Buttons to inject any catalog fault, plus <em>surprise me</em> — random, and hidden from the viewer. Handing a reviewer the controls is a stronger signal of confidence than any scripted demo.</td>
+    </tr>
+    <tr>
+      <td><strong>Evidence inspector</strong></td>
+      <td>Click any citation to see the exact query, the time range, and the redacted payload. This is the grounding claim made <em>inspectable</em> rather than asserted.</td>
+    </tr>
+    <tr>
+      <td><strong>Evaluation dashboard</strong></td>
+      <td>Accuracy over time, per-fault-class breakdown, hallucination rate, decoy resistance, cost per investigation.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Dark, dense, and technical — an instrument panel, not a SaaS landing page.</p>
+
+<!-- ============================== DEPLOYMENT ============================== -->
+<h2><span class="num">15</span>Deployment and cost</h2>
+
+<p>The entire stack runs in Docker Compose on one free-tier ARM instance (4 OCPU / 24&nbsp;GB), with a €4/month box as the fallback if free-tier capacity is unavailable in the region. Rough memory budget: Loki 1.0&nbsp;G, Prometheus 1.5&nbsp;G, Tempo 1.0&nbsp;G, Postgres 1.0&nbsp;G, Redis 0.3&nbsp;G, five application services 1.5&nbsp;G, exporters and cAdvisor and Alloy 0.6&nbsp;G, k6 0.3&nbsp;G, the sherLOG engine 1.5&nbsp;G — approximately <strong>9&nbsp;GB</strong>, leaving generous headroom.</p>
+
+<table>
+  <thead><tr><th style="width:30%">Layer</th><th style="width:34%">Choice</th><th>Cost</th></tr></thead>
+  <tbody>
+    <tr><td>Target system + observability</td><td>Free-tier ARM instance, Docker Compose</td><td class="t-num">$0</td></tr>
+    <tr><td>Logs / metrics / traces</td><td>Loki + Prometheus + Tempo, self-hosted, short retention</td><td class="t-num">$0</td></tr>
+    <tr><td>Application DB + vectors</td><td>Postgres + pgvector — one database, no separate vector store</td><td class="t-num">$0</td></tr>
+    <tr><td>Queue</td><td>Postgres <code>SKIP LOCKED</code> — no Kafka</td><td class="t-num">$0</td></tr>
+    <tr><td>Frontend</td><td>Next.js on a free tier</td><td class="t-num">$0</td></tr>
+    <tr><td>CI + nightly evaluation</td><td>GitHub Actions free minutes</td><td class="t-num">$0</td></tr>
+    <tr><td><strong>Model calls</strong></td><td>Per-stage routing, aggressive caching, budget governor from week 1</td><td class="t-num"><strong>$40&ndash;90</strong></td></tr>
+  </tbody>
+</table>
+
+<p>Per-investigation cost lands in the <strong>$0.15&ndash;0.35</strong> range at mixed-tier pricing, which is why the governor caps at $0.60 — a run that doubles the estimate is a bug worth failing on, not a cost worth absorbing. A hard monthly spend limit is set on the API key before the first paid run, because discovering an overrun late means losing the accuracy trend line, which is the single most valuable artifact the project produces.</p>
+
+<!-- ============================== OUT OF SCOPE ============================== -->
+<h2><span class="num">16</span>What v1 deliberately excludes</h2>
+
+<p class="lede">The cut line: <strong>if it does not make a diagnosis more accurate, more grounded, or more visibly autonomous, it is out of v1.</strong></p>
+
+<div class="two-col">
+<h4>Excluded from the product</h4>
+<ul>
+  <li><strong>Auto-remediation.</strong> The system proposes fixes and never applies them. This is also what bounds the blast radius of a prompt injection.</li>
+  <li><strong>Multi-tenancy, RBAC, SSO.</strong> Single shared login.</li>
+  <li><strong>Real cloud-provider integrations.</strong> Seven tools, all against systems we run.</li>
+  <li><strong>Fine-tuning.</strong> Pinned off-the-shelf models throughout.</li>
+  <li><strong>Cross-provider fallback.</strong> A second provider means a second SDK, a second structured-output dialect, and — worst — an accuracy number that silently mixes two model families. The seam is left open; v1 does not walk through it.</li>
+  <li><strong>A local model.</strong> Ruled out on arithmetic, not preference: four ARM cores with no GPU, already running 9&nbsp;GB of observability stack. It would be slower than the fault it is diagnosing.</li>
+</ul>
+
+<h4>Excluded from the target system</h4>
+<ul>
+  <li>No authentication, no real payments, no storefront UI, no inventory reservations, no multi-region, no Kubernetes. The store is a <em>fault substrate</em>, not a product.</li>
+</ul>
+
+<h4>Excluded from the catalog</h4>
+<ul>
+  <li>Fault-class breadth. v1 has no memory leak, no disk fill, no clock skew, no schema drift, no prompt-injection fault.</li>
+  <li>Each is a YAML entry and an injector method once the harness exists. Backlog order: memory leak (git commit, worker), prompt-injection-in-logs (data), disk fill (chaos), schema drift (git commit).</li>
+</ul>
+</div>
+
+<h3>What makes this defensible</h3>
+
+<p>If asked <em>"isn't this just a wrapper around a language model?"</em>, the answers are concrete:</p>
+
+<ul>
+  <li><strong>The fault injection engine and the ground-truth contract</strong> — a testbed, not a prompt.</li>
+  <li><strong>The hypothesis ledger with pre-registered falsifiable predictions</strong> — a reasoning protocol that mechanically refutes, rather than a model asked to think step by step.</li>
+  <li><strong>Programmatic citation verification</strong> — deterministic code that catches the model inventing things, with a measured strip-rate.</li>
+  <li><strong>The evaluation harness</strong> — quantified accuracy, hallucination rate and decoy resistance, tracked over time, with ablations that price each design decision.</li>
+  <li><strong>The security architecture</strong> — canary-tested redaction, credential brokering, tiered document access, all enforced structurally.</li>
+  <li><strong>Calibrated abstention</strong> — the system knows when it does not know, and one fault exists purely to prove it.</li>
+</ul>
+
+<p style="margin-top:5mm;padding-top:4mm;border-top:1.4pt solid var(--ink);font-size:11pt;">The language model is one component inside a system that constrains it, verifies it, and measures it. That is the difference — and it is the sentence the project is built to be able to say.</p>
+
+</body>
+</html>
