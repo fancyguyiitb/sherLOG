@@ -1,0 +1,44 @@
+id: D-2
+name: benign_deploy
+class: code_regression
+severity: low
+breaches_slo: none
+
+# The more valuable of the two decoys. "There was a deploy right before the incident" is
+# the single most seductive false correlation in real on-call work, and an agent that
+# blames it is doing exactly what a junior does at 3am.
+inject:
+  mode: git_commit
+  target: orders-svc
+  patch_file: patches/D-2_log_strings_and_readme.patch
+  commit_message: "chore: clarify log messages and update README"
+  change:
+    touches: ["log message strings", "README.md"]
+  revert:
+    git: revert
+
+ground_truth:
+  root_cause: >-
+    A real commit touching only log message strings and the README was deployed inside the
+    incident window and has no causal relationship to any SLO breach.
+  proximate_service: none
+  originating_component: none
+  causal_chain:
+    - "a commit touching only log strings and README is deployed into the incident window"
+    - "the deployments table records it; git_diff_since returns it alongside the real change"
+    - "no behavioural change results"
+  correct_fix_class: "no action required"
+
+expected_signals:
+  metrics: []
+  logs:
+    - "log message wording changes; the Drain3 template ID may change, which is itself a trap"
+  traces: []
+
+decoys: []
+expected_outcome: INSUFFICIENT_EVIDENCE
+notes: >-
+  Always injected alongside F-05, randomly otherwise. Note the second-order trap: changing
+  log wording produces a NEW Drain3 template, which the novelty detector will correctly
+  flag as never-before-seen. A novel template is evidence of change, not evidence of fault,
+  and the agent has to hold that distinction.

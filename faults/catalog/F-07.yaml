@@ -1,0 +1,48 @@
+id: F-07
+name: observability_blind_spot
+class: observability
+severity: medium
+breaches_slo: availability
+
+# The abstention case. This is a SUCCESS STATE and it must be in the demo. It is the only
+# fault where a confident, well-argued answer is scored as a failure.
+inject:
+  mode: config_patch
+  target: alloy
+  change:
+    stop_log_shipping_for: payments-svc
+    then_apply_toxic: {toxic: latency, latency_ms: 400}
+  revert:
+    restart_log_shipping: payments-svc
+    remove_toxic: latency
+
+ground_truth:
+  root_cause: >-
+    Log shipping for payments-svc was stopped and a mild upstream latency toxic applied, so
+    metrics show payments-svc degrading while no logs or traces exist for the window to
+    establish why.
+  proximate_service: payments-svc
+  originating_component: unknown
+  causal_chain:
+    - "the Alloy log-shipping container for payments-svc is stopped"
+    - "a 400ms latency toxic is applied to the payments-to-psp link"
+    - "metrics show payments-svc request duration rising"
+    - "no logs and no traces exist for the window to explain the rise"
+  correct_fix_class: "restore log shipping, then re-investigate; alert on log ingestion rate per service"
+  known_misdiagnosis: psp_latency_injection
+
+expected_signals:
+  metrics:
+    - "payments-svc request duration elevated"
+    - "log ingestion rate for payments-svc drops to zero"
+  logs: []
+  traces: []
+
+decoys: []
+expected_outcome: INSUFFICIENT_EVIDENCE
+notes: >-
+  The correct output is INSUFFICIENT_EVIDENCE carrying a stated partial finding —
+  "payments-svc is the proximate service; log evidence is unavailable for this window" —
+  rather than a guess. A system that never says "I don't know" is a system that
+  hallucinates, and any competent reviewer knows it. Scored as: abstained AND named the
+  proximate service AND named the evidence gap.

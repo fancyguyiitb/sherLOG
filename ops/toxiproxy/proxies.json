@@ -1,0 +1,14 @@
+[
+  {
+    "name": "payments_to_psp",
+    "listen": "0.0.0.0:8666",
+    "upstream": "psp-stub:8003",
+    "enabled": true
+  },
+  {
+    "name": "orders_to_redis",
+    "listen": "0.0.0.0:8667",
+    "upstream": "redis:6379",
+    "enabled": true
+  }
+]

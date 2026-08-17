@@ -1,0 +1,38 @@
+id: D-1
+name: mild_redis_latency
+class: dependency
+severity: low
+breaches_slo: none
+
+# A decoy: real, measurable, and harmless. Runs during roughly half of all injections.
+# An agent that blames it is inferring causality from correlation, and the eval catches it.
+inject:
+  mode: chaos
+  target: toxiproxy/orders_to_redis
+  change:
+    toxic: latency
+    latency_ms: 15
+  revert:
+    remove_toxic: latency
+
+ground_truth:
+  root_cause: >-
+    A 15ms latency toxic on the orders-to-Redis link is present but is not the cause of any
+    SLO breach; it is background noise that must never be blamed.
+  proximate_service: none
+  originating_component: none
+  causal_chain:
+    - "a 15ms latency toxic is applied to the orders-to-Redis link"
+    - "cache read latency rises by 15ms, well inside the latency budget; no SLO moves"
+  correct_fix_class: "no action required"
+
+expected_signals:
+  metrics:
+    - "redis command latency +15ms, absolute value still small"
+  logs: []
+  traces:
+    - "redis.get spans ~15ms slower"
+
+decoys: []
+expected_outcome: INSUFFICIENT_EVIDENCE
+notes: "Never injected alone. Decoy resistance = the share of runs in which D-1 is not named."

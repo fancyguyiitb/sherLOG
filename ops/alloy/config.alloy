@@ -1,0 +1,66 @@
+// Grafana Alloy — reads container stdout and ships to Loki. No app-side agent.
+//
+// Labels are `service` and `level` ONLY. Everything else stays in the JSON body and is
+// extracted at query time. High-cardinality labels — trace_id above all — are the standard
+// way people destroy a Loki install, and it would happen here within a day at 78 lines/s.
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "nimbus" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  // sherLOG's own containers are dropped here so the engine's logs cannot be retrieved as
+  // evidence about the target system. Same hazard as the separate Tempo instance, same
+  // reasoning: the agent reading its own reasoning back as evidence is a closed loop that
+  // would look like corroboration.
+  rule {
+    source_labels = ["service"]
+    regex         = "sherlog.*|grafana|alloy"
+    action        = "drop"
+  }
+}
+
+loki.source.docker "nimbus" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.nimbus.output
+  forward_to = [loki.process.json.receiver]
+}
+
+loki.process "json" {
+  // Lift only what becomes a label or is needed for filtering. `event`, `trace_id`,
+  // `commit_sha` and `config_hash` stay in the body and are parsed at query time by
+  // log_stats() — cheap in LogQL, catastrophic as labels.
+  stage.json {
+    expressions = {
+      level = "level",
+      ts    = "ts",
+    }
+  }
+
+  stage.labels {
+    values = { level = "" }
+  }
+
+  stage.timestamp {
+    source = "ts"
+    format = "RFC3339Nano"
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// F-07 stops this component for payments-svc specifically: metrics keep flowing, logs stop,
+// and the correct answer becomes INSUFFICIENT_EVIDENCE with a stated partial finding.

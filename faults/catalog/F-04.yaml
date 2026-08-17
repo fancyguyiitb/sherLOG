@@ -1,0 +1,55 @@
+id: F-04
+name: psp_latency_injection
+class: dependency
+severity: high
+breaches_slo: availability
+
+# Pair 2, second half — and the trap in the catalog. This fault elevates db_pool_waiters
+# too, because blocked handlers hold their connections while waiting on payments. An agent
+# that stops at "the pool is exhausted" gets the proximate service right and the root cause
+# wrong. Ground truth records both, and they are scored separately.
+inject:
+  mode: chaos
+  target: toxiproxy/payments_to_psp
+  change:
+    toxic: latency
+    latency_ms: 1500
+    jitter_ms: 300
+  revert:
+    remove_toxic: latency
+
+ground_truth:
+  root_cause: >-
+    The external payment provider stub began responding in roughly 1.5 seconds instead of
+    80 milliseconds, so payments-svc calls block, orders-svc handlers block waiting on
+    payments while holding database connections, and the orders pool saturates as a
+    secondary effect.
+  proximate_service: payments-svc
+  originating_component: psp-stub
+  causal_chain:
+    - "psp-stub p99 latency rises to 1500ms from an 80ms baseline"
+    - "payments-svc upstream call duration rises proportionally"
+    - "orders-svc handlers block on payments while holding DB connections"
+    - "orders-svc pool saturates as a secondary effect, not a cause"
+    - "gateway returns 504 on /checkout"
+  correct_fix_class: "reduce the payments client timeout and circuit-break psp; do NOT resize the pool"
+  known_misdiagnosis: db_pool_exhaustion
+
+expected_signals:
+  metrics:
+    - 'histogram_quantile(0.99, upstream_duration_seconds{upstream="psp"}) > 1.2'
+    - "db_pool_waiters > 5 (secondary effect, present in F-03 too)"
+    - "db_pool_size UNCHANGED at 20"                    # discriminator against F-03
+  logs:
+    - upstream.slow
+    - upstream.timeout
+  traces:
+    - "span psp.capture duration > 1200ms; db.acquire span short by comparison"
+
+decoys: [D-1]
+expected_outcome: CONFIRMED
+notes: >-
+  Scoring this fault separates proximate_service (payments-svc) from originating_component
+  (psp-stub). Naming payments-svc as the root cause is a partial credit answer; naming the
+  pool is the predicted misdiagnosis and scores zero on root cause while still scoring on
+  service localisation.

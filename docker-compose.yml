@@ -1,0 +1,207 @@
+# The whole stack: target system, observability, chaos, load. One Docker Compose file on
+# one free-tier ARM box (Oracle Cloud Always Free, 4 OCPU / 24 GB; Hetzner CX22 at ~EUR4/mo
+# is the fallback if free-tier ARM capacity is unavailable in the region).
+#
+# Rough memory budget: Loki 1.0G, Prometheus 1.5G, Tempo 1.0G, Postgres 1.0G, Redis 0.3G,
+# five app services 1.5G, exporters + cAdvisor + Alloy 0.6G, k6 0.3G, sherLOG engine 1.5G
+# ~= 9 GB, leaving generous headroom.
+#
+# Cost: $0.
+
+name: nimbus
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  environment: &common-env
+    COMMIT_SHA: ${COMMIT_SHA:-dev}
+    ENVIRONMENT: local
+    LOG_LEVEL: INFO
+  logging:
+    driver: json-file
+    options: {max-size: "50m", max-file: "3"}
+
+services:
+  # ---------------------------------------------------------------- Plane 1: target system
+
+  gateway:
+    <<: *service-defaults
+    build: {context: ., dockerfile: nimbus/Dockerfile, args: {SERVICE: gateway}}
+    ports: ["8000:8000"]
+    environment:
+      <<: *common-env
+      UPSTREAM_TIMEOUT_S: "5.0"
+      UPSTREAM_RETRIES: "1"
+    depends_on: [orders-svc]
+
+  orders-svc:
+    <<: *service-defaults
+    build: {context: ., dockerfile: nimbus/Dockerfile, args: {SERVICE: orders_svc}}
+    # These four are the F-01 and F-03 injection points. The injector rewrites this env,
+    # then runs `docker compose up -d --force-recreate orders-svc` — a real restart with a
+    # real config-hash change, visible in runtime_state().
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgresql://nimbus:nimbus@postgres:5432/nimbus
+      REDIS_URL: redis://redis:6379/0
+      CATALOG_CACHE_TTL_S: "300"    # F-01 sets this to 0
+      DB_POOL_MAX: "20"             # F-03 sets this to 3
+      DB_ACQUIRE_TIMEOUT_S: "3.0"
+    depends_on: [postgres, redis, payments-svc]
+
+  payments-svc:
+    <<: *service-defaults
+    build: {context: ., dockerfile: nimbus/Dockerfile, args: {SERVICE: payments_svc}}
+    environment:
+      <<: *common-env
+      # Through the chaos proxy, never straight at psp-stub. This indirection is what makes
+      # F-04 a real network fault rather than a sleep in our own code.
+      PSP_BASE_URL: http://toxiproxy:8666
+    depends_on: [toxiproxy]
+
+  psp-stub:
+    <<: *service-defaults
+    build: {context: ., dockerfile: nimbus/Dockerfile, args: {SERVICE: psp_stub}}
+
+  worker:
+    <<: *service-defaults
+    build: {context: ., dockerfile: nimbus/Dockerfile, args: {SERVICE: worker}}
+    command: ["python", "-m", "nimbus.worker.main"]
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgresql://nimbus:nimbus@postgres:5432/nimbus
+      JOB_MAX_ATTEMPTS: "5"
+    depends_on: [postgres]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nimbus
+      POSTGRES_PASSWORD: nimbus
+      POSTGRES_DB: nimbus
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Creates the nimbus database, the separate sherlog_truth database, and the two roles
+      # whose separation the ground-truth isolation test asserts.
+      - ./nimbus/db:/docker-entrypoint-initdb.d:ro
+    ports: ["5432:5432"]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # F-02 rewrites maxmemory to 8mb and restarts this container.
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    restart: unless-stopped
+    ports: ["8474:8474"]   # control API — the F-04 and D-1 injection surface
+    command: ["-host=0.0.0.0", "-config=/config/proxies.json"]
+    volumes: [./ops/toxiproxy:/config:ro]
+
+  # ---------------------------------------------------------------- Plane 2: observability
+
+  loki:
+    image: grafana/loki:3.1.0
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./ops/loki/loki.yml:/etc/loki/loki.yml:ro
+      - lokidata:/loki
+    ports: ["3100:3100"]
+
+  alloy:
+    image: grafana/alloy:v1.3.0
+    restart: unless-stopped
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./ops/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [loki]
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=48h
+      - --web.enable-lifecycle
+    volumes:
+      - ./ops/prometheus:/etc/prometheus:ro
+      - promdata:/prometheus
+    ports: ["9090:9090"]
+
+  tempo:
+    image: grafana/tempo:2.6.0
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./ops/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempodata:/var/tempo
+    ports: ["3200:3200", "4317:4317"]
+
+  # sherLOG's OWN traces go here, never to the Tempo above.
+  #
+  # If the engine's spans landed in the Tempo it queries as evidence, it could retrieve its
+  # own reasoning as "evidence" about the target system — and the injector's spans could leak
+  # ground truth by the same path. trace_search() also hard-filters
+  # service.namespace != "sherlog" as a second layer.
+  tempo-sherlog:
+    image: grafana/tempo:2.6.0
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./ops/tempo/tempo-sherlog.yml:/etc/tempo/tempo.yml:ro
+      - tempodata_sherlog:/var/tempo
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    restart: unless-stopped
+    environment: {REDIS_ADDR: "redis://redis:6379"}
+    depends_on: [redis]
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://nimbus:nimbus@postgres:5432/nimbus?sslmode=disable"
+    depends_on: [postgres]
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    # For US, not part of the product. sherLOG must never query Grafana — it reads Loki,
+    # Prometheus and Tempo directly, which is what keeps the seven-tool contract honest.
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes: [./ops/grafana:/etc/grafana/provisioning:ro]
+    ports: ["3000:3000"]
+
+  # ---------------------------------------------------------------- load
+
+  k6:
+    image: grafana/k6:0.53.0
+    restart: unless-stopped
+    command: ["run", "/scripts/checkout.js"]
+    volumes: [./load:/scripts:ro]
+    environment:
+      K6_TARGET: http://gateway:8000
+    depends_on: [gateway]
+
+volumes:
+  pgdata:
+  promdata:
+  lokidata:
+  tempodata:
+  tempodata_sherlog:

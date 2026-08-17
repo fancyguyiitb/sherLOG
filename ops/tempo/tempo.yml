@@ -1,0 +1,31 @@
+# Tempo for the TARGET SYSTEM's traces. 100% sampling: at 13 rps there is no reason to
+# sample, and trace-by-id lookup from a trace_id lifted out of a log line is the single most
+# valuable path in the evidence layer — it only works if the trace is actually there.
+
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: 24h
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks

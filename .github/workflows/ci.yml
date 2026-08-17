@@ -1,0 +1,74 @@
+# Commit tier: every push, frozen mode, $0.
+#
+# The eval budget only works with tiering. The full matrix is 39 runs at ~$0.25 each; a
+# nightly full pass for eight weeks would be ~$550 against a $40-70 budget. So the
+# deterministic layers — which are most of the thesis — are tested here for free, and paid
+# evaluation runs on a schedule.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  deterministic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -e ".[dev]"
+
+      - name: Test the deterministic layers
+        run: pytest tests/ -v
+
+      - name: Lint
+        run: ruff check sherlog faults nimbus tests
+
+      # A green canary test on screen is worth more than three paragraphs about security
+      # posture. The canary is planted in a log line, a config value and a corpus document;
+      # this asserts it never reaches an outbound model payload.
+      - name: Canary — no secret reaches a model payload
+        run: pytest tests/test_redaction.py -k canary -v
+
+      - name: Fault catalog schema
+        run: pytest tests/test_catalog.py -v
+
+      # If a stage imports the provider SDK directly, or the engine imports target-system
+      # code, the generalisation claim becomes false silently. Both are architectural rules,
+      # so they fail the build rather than a review.
+      - name: Architectural boundaries
+        run: pytest tests/test_boundaries.py -v
+
+  isolation:
+    # Ground truth lives in a separate database owned by a separate role. If a reviewer
+    # suspects leakage, every accuracy number is void — so the isolation is asserted, not
+    # asserted-about.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nimbus
+          POSTGRES_PASSWORD: nimbus
+          POSTGRES_DB: nimbus
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[dev]"
+      - name: Apply schema and role separation
+        run: |
+          PGPASSWORD=nimbus psql -h localhost -U nimbus -d nimbus -f nimbus/db/01_init.sql
+          PGPASSWORD=nimbus psql -h localhost -U nimbus -d nimbus -f nimbus/db/02_ground_truth_isolation.sql
+      - name: Assert the agent role cannot read ground truth
+        run: pytest tests/test_ground_truth_isolation.py -v

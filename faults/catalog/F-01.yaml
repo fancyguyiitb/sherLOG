@@ -1,0 +1,51 @@
+id: F-01
+name: cache_ttl_collapse
+class: config
+severity: high
+breaches_slo: latency
+
+# Pair 1, first half. F-01 and F-02 are near-indistinguishable at the gateway: identical
+# symptom shape, different cause. Separating them requires reaching for the *discriminating*
+# signal rather than the *confirming* one, which is exactly what pre-registered
+# predicted_signals are designed to force.
+inject:
+  mode: config_patch
+  target: orders-svc
+  change:
+    CATALOG_CACHE_TTL_S: 0        # from 300
+  revert:
+    CATALOG_CACHE_TTL_S: 300
+
+ground_truth:
+  root_cause: >-
+    The catalog cache TTL on orders-svc was set to zero by a configuration change, so every
+    catalog read misses the cache and falls through to Postgres, raising read QPS roughly
+    eightfold and pushing checkout latency past the SLO.
+  proximate_service: orders-svc
+  originating_component: orders-svc
+  causal_chain:
+    - "orders-svc CATALOG_CACHE_TTL_S changed from 300 to 0; config hash changes"
+    - "every catalog lookup misses Redis"
+    - "Postgres read QPS rises ~8x, query latency climbs"
+    - "orders-svc p99 rises"
+    - "gateway /checkout p99 breaches the 1200ms latency SLO with zero errors"
+  correct_fix_class: "restore CATALOG_CACHE_TTL_S to 300; alert on cache hit ratio"
+  known_misdiagnosis: redis_eviction_storm
+
+expected_signals:
+  metrics:
+    - 'rate(cache_ops_total{service="orders-svc",result="miss"}[5m]) rises sharply'
+    - 'redis_evicted_keys_total stays FLAT'      # the discriminator against F-02
+    - 'redis_memory_used_bytes well below maxmemory'
+    - 'pg_stat_database_tup_fetched up ~8x'
+  logs:
+    - cache.miss
+  traces:
+    - "span db.query count per request rises; redis.get span present but always a miss"
+
+decoys: [D-1]
+expected_outcome: CONFIRMED
+notes: >-
+  Produces no errors at all. An agent that only knows how to read error rates fails this
+  outright. The config hash for orders-svc changed and Redis's own config did not, which is
+  the cheapest available discriminator if the agent thinks to call runtime_state.

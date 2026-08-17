@@ -1,0 +1,55 @@
+id: F-06
+name: poison_message_backlog
+class: data
+severity: high
+breaches_slo: freshness
+
+# The only fault that never touches the request path. Availability and latency stay green
+# throughout; a freshness SLO breaches alone. An agent that equates "incident" with "error
+# rate" cannot even detect this one, let alone diagnose it.
+inject:
+  mode: data
+  target: worker
+  patch_file: patches/F-06_missing_dead_letter.patch
+  commit_message: "refactor: streamline job retry handling"
+  change:
+    enqueue_job: {sku: "SKU-NULLPRICE", price: null}
+  revert:
+    delete_job: "SKU-NULLPRICE"
+    git: revert
+
+ground_truth:
+  root_cause: >-
+    A refactor removed the dead-letter path from the worker's retry handler, so a
+    fulfillment job referencing a SKU with a null price crashes and retries forever,
+    blocking the head of the queue and preventing any subsequent order from completing.
+  proximate_service: worker
+  originating_component: worker
+  causal_chain:
+    - "commit 'refactor: streamline job retry handling' removes the dead-letter branch"
+    - "a fulfillment job referencing a null-price SKU raises in the handler"
+    - "the job is retried indefinitely instead of being dead-lettered"
+    - "head-of-line blocking: queue_depth and job_oldest_age_seconds climb monotonically"
+    - "orders never reach COMPLETE; the freshness SLO breaches while availability and latency stay green"
+  correct_fix_class: "restore the dead-letter path and cap attempts; alert on job_oldest_age_seconds"
+  known_misdiagnosis: worker_undersized
+
+expected_signals:
+  metrics:
+    - 'job_attempts_total{status="retry"} concentrated on a single job_id'
+    - "queue_depth rising monotonically"
+    - "job_oldest_age_seconds far above 60s"
+    - "http_requests_total error ratio UNCHANGED — nothing is failing on the request path"
+  logs:
+    - job.handler.error       # Drain3 should flag this template as never-before-seen
+    - job.retry
+  traces:
+    - "no request-path trace shows anything abnormal"
+
+decoys: [D-1, D-2]
+expected_outcome: CONFIRMED
+notes: >-
+  The data trigger and the code root cause are deliberately separate: the null-price row is
+  what fires it, but the missing dead-letter branch is why one bad row takes the queue down.
+  Ground truth names the code. An answer that stops at "there is a bad row" is scored as a
+  partial: it identifies the trigger and misses the defect.

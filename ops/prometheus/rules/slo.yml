@@ -1,0 +1,117 @@
+# SLO recording rules and burn-rate windows.
+#
+# The ratios are precomputed here so the detector's own PromQL stays trivial. The detector
+# is our own Python service polling these rules every 15s — not Alertmanager. Detection is
+# the thing that makes the system autonomous, and it should be code we own and can show
+# rather than YAML inside someone else's binary.
+#
+# Three SLIs, chosen so that each fault breaches a different one:
+#   availability -> F-03, F-04
+#   latency      -> F-01, F-02, F-05
+#   freshness    -> F-06 only
+#
+# STATED DEMO COMPRESSION: the error budget is 6 hours rolling, not 30 days. A 30-day budget
+# cannot burn 2% inside a 90-second demo. We say this out loud in the writeup rather than
+# quietly substituting a static threshold and still calling it burn-rate detection.
+
+groups:
+  - name: sli_availability
+    interval: 15s
+    rules:
+      - record: sli:availability:ratio_rate30s
+        expr: |
+          sum(rate(http_requests_total{service="gateway",route="POST /checkout",status!~"5.."}[30s]))
+          /
+          sum(rate(http_requests_total{service="gateway",route="POST /checkout"}[30s]))
+
+      - record: sli:availability:ratio_rate5m
+        expr: |
+          sum(rate(http_requests_total{service="gateway",route="POST /checkout",status!~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total{service="gateway",route="POST /checkout"}[5m]))
+
+      - record: sli:availability:ratio_rate3m
+        expr: |
+          sum(rate(http_requests_total{service="gateway",route="POST /checkout",status!~"5.."}[3m]))
+          /
+          sum(rate(http_requests_total{service="gateway",route="POST /checkout"}[3m]))
+
+      - record: sli:availability:ratio_rate30m
+        expr: |
+          sum(rate(http_requests_total{service="gateway",route="POST /checkout",status!~"5.."}[30m]))
+          /
+          sum(rate(http_requests_total{service="gateway",route="POST /checkout"}[30m]))
+
+  - name: sli_latency
+    interval: 15s
+    rules:
+      # Fraction of /checkout requests served under 1200ms, read straight off the histogram
+      # bucket rather than via histogram_quantile. Ratio-of-buckets is the correct shape for
+      # an SLI: it is a proportion of good events, which is what a burn rate consumes.
+      - record: sli:latency:ratio_rate30s
+        expr: |
+          sum(rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="1.2"}[30s]))
+          /
+          sum(rate(http_request_duration_seconds_count{service="gateway",route="POST /checkout"}[30s]))
+
+      - record: sli:latency:ratio_rate5m
+        expr: |
+          sum(rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="1.2"}[5m]))
+          /
+          sum(rate(http_request_duration_seconds_count{service="gateway",route="POST /checkout"}[5m]))
+
+      - record: sli:latency:ratio_rate3m
+        expr: |
+          sum(rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="1.2"}[3m]))
+          /
+          sum(rate(http_request_duration_seconds_count{service="gateway",route="POST /checkout"}[3m]))
+
+      - record: sli:latency:ratio_rate30m
+        expr: |
+          sum(rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="1.2"}[30m]))
+          /
+          sum(rate(http_request_duration_seconds_count{service="gateway",route="POST /checkout"}[30m]))
+
+      # F-05 is invisible above and unmistakable here. Recorded, not merely queryable,
+      # because an agent that never thinks to segment by cohort should still be able to
+      # stumble onto the split — the fault is meant to test causal attribution, not to
+      # hinge on one remembered label name.
+      - record: sli:latency:ratio_rate5m:by_cohort
+        expr: |
+          sum by (cohort) (rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="1.2"}[5m]))
+          /
+          sum by (cohort) (rate(http_request_duration_seconds_count{service="gateway",route="POST /checkout"}[5m]))
+
+  - name: sli_freshness
+    interval: 15s
+    rules:
+      # Fraction of orders reaching COMPLETE within 60s. The only SLI F-06 breaches, and
+      # the reason F-06 is in the catalog at all.
+      - record: sli:freshness:ratio_rate5m
+        expr: |
+          sum(rate(order_completion_seconds_bucket{le="60"}[5m]))
+          /
+          sum(rate(order_completion_seconds_count[5m]))
+
+      - record: sli:freshness:ratio_rate30s
+        expr: |
+          sum(rate(order_completion_seconds_bucket{le="60"}[30s]))
+          /
+          sum(rate(order_completion_seconds_count[30s]))
+
+  - name: discriminators
+    interval: 15s
+    rules:
+      # F-01 vs F-02. Both collapse the hit rate; only F-02 evicts.
+      - record: discriminator:cache_miss_rate
+        expr: |
+          sum(rate(cache_ops_total{result="miss"}[2m]))
+          /
+          sum(rate(cache_ops_total[2m]))
+
+      - record: discriminator:redis_eviction_rate
+        expr: rate(redis_evicted_keys_total[2m])
+
+      # F-03 vs F-04. Both saturate the pool; only F-04 has a slow upstream.
+      - record: discriminator:psp_latency_p99
+        expr: histogram_quantile(0.99, sum by (le) (rate(upstream_duration_seconds_bucket{upstream="psp"}[2m])))

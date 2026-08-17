@@ -1,0 +1,49 @@
+id: F-02
+name: redis_eviction_storm
+class: dependency
+severity: high
+breaches_slo: latency
+
+# Pair 1, second half. Downstream of the cache the shape is identical to F-01. The only
+# clean separation is in Redis's own metrics and in which config hash moved.
+inject:
+  mode: config_patch
+  target: redis
+  change:
+    maxmemory: 8mb                # from 256mb
+  revert:
+    maxmemory: 256mb
+
+ground_truth:
+  root_cause: >-
+    Redis maxmemory was reduced to 8mb, so the catalog working set no longer fits and keys
+    are evicted continuously under memory pressure, collapsing the cache hit rate and
+    pushing catalog reads onto Postgres.
+  proximate_service: orders-svc
+  originating_component: redis
+  causal_chain:
+    - "redis maxmemory reduced from 256mb to 8mb; Redis restarts with the new limit"
+    - "catalog working set exceeds the limit; allkeys-lru evicts continuously"
+    - "orders-svc cache miss rate rises even though its own config is unchanged"
+    - "Postgres read QPS rises, query latency climbs"
+    - "gateway /checkout p99 breaches the latency SLO"
+  correct_fix_class: "restore redis maxmemory; alert on evicted_keys rate and memory headroom"
+  known_misdiagnosis: cache_ttl_collapse
+
+expected_signals:
+  metrics:
+    - 'rate(redis_evicted_keys_total[5m]) rising steeply'   # the discriminator against F-01
+    - "redis_memory_used_bytes pinned at maxmemory"
+    - 'rate(cache_ops_total{service="orders-svc",result="miss"}[5m]) rises'
+  logs:
+    - cache.miss
+  traces:
+    - "redis.get spans normal in duration but consistently missing"
+
+decoys: [D-1]
+expected_outcome: CONFIRMED
+notes: >-
+  orders-svc config hash is UNCHANGED here and changed in F-01. If the agent gathers only
+  the confirming signal (cache misses are up, which is true in both), both hypotheses sit
+  near 0.5, the margin requirement in the outcome gate fails, and the system abstains.
+  Abstention in that state is the correct behaviour and is scored as such.

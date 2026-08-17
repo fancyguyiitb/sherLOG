@@ -1,0 +1,52 @@
+id: F-05
+name: n_plus_one_regression
+class: code_regression
+severity: medium
+breaches_slo: latency
+
+# The fault that proves git correlation is real. A genuine commit with a genuine diff is
+# applied to the target repo, the image is rebuilt and redeployed, and a row is written to
+# `deployments`. Faked git history is instantly obvious to a technical reviewer.
+inject:
+  mode: git_commit
+  target: orders-svc
+  patch_file: patches/F-05_item_enrichment_loop.patch
+  commit_message: "perf: simplify item enrichment logic"
+  change:
+    replaces: "single joined catalog query"
+    with: "per-item lookup loop"
+  revert:
+    git: revert
+
+ground_truth:
+  root_cause: >-
+    A commit to orders-svc replaced a single joined catalog query with a per-item lookup
+    loop, so query count now scales linearly with basket size and only large baskets
+    degrade, dragging aggregate p99 just past the latency SLO.
+  proximate_service: orders-svc
+  originating_component: orders-svc
+  causal_chain:
+    - "commit 'perf: simplify item enrichment logic' deployed to orders-svc"
+    - "item enrichment issues one query per line item instead of one joined query"
+    - "database round trips scale with basket size"
+    - "only the cohort=large 20% of traffic degrades; p50 is untouched"
+    - "aggregate /checkout p99 creeps past the 1200ms latency SLO"
+  correct_fix_class: "revert the commit; restore the joined query and add a per-cohort latency SLI"
+  known_misdiagnosis: benign_deploy_blamed
+
+expected_signals:
+  metrics:
+    - 'http_request_duration_seconds{cohort="large"} p99 far above cohort="small"'
+    - "aggregate p50 unchanged while p99 rises"
+    - "pg_stat_database_tup_fetched up, without any config hash change"
+  logs:
+    - db.query
+  traces:
+    - "15-30 sequential db.query spans inside one POST /orders span for large baskets"
+
+decoys: [D-2]
+expected_outcome: CONFIRMED
+notes: >-
+  Always injected alongside D-2, a benign commit deployed into the same window, so the
+  agent must pick the right commit rather than merely the right time window. It is also
+  invisible in aggregate p99 alone: solving it requires segmenting by the cohort label.

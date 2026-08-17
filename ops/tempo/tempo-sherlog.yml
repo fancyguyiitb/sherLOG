@@ -1,0 +1,38 @@
+# Tempo for SHERLOG'S OWN traces. A deliberately separate instance.
+#
+# The hazard this closes is easy to miss and would be fatal if it landed. If the engine's
+# own spans went to the Tempo it queries as evidence, it could retrieve its own reasoning as
+# "evidence" about the target system — a closed loop that reads exactly like corroboration.
+# Worse, the injector's spans would leak ground truth by the same path, and every accuracy
+# number in the writeup would be void.
+#
+# Belt and braces: trace_search() also hard-filters service.namespace != "sherlog", and
+# tests/test_telemetry_isolation.py asserts both layers.
+
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    # Longer than the target system's 24h: agent traces are how we debug the agent, and a
+    # bad hypothesis on Monday is often only noticed when the weekly eval runs on Friday.
+    block_retention: 168h
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
