@@ -359,25 +359,29 @@ def dedupe_hypotheses(kept: list[tuple[Any, list[PredictedSignal]]],
 
     Two duplicates split the posterior between them, the margin collapses to zero, and the
     gate abstains on a diagnosis the evidence settled. So, mechanically: same originating
-    component AND same fault class AND at least two-thirds of the smaller prediction set
-    being identical checks -> the later one merges into the earlier (its extra predictions
-    are kept). Same component and class alone is NOT a duplicate: a cache-TTL change and a
-    pool-size change are both orders-svc config faults with different mechanisms, and
-    their predictions differ.
+    component AND they share at least two identical POSITIVE checks -> the later one merges
+    into the earlier, keeping its extra predictions. The fault-class label is deliberately ignored: "Redis maxmemory lowered"
+    (config) and "Redis memory exhaustion" (resource) predict the same evictions and the
+    same misses, and are one diagnosis. Negated checks ("no deploy") are not counted —
+    nearly every hypothesis makes one, so they say nothing about sameness. A cache-TTL
+    change and a pool-size change, both orders-svc, share at most one positive check and
+    stay separate.
     """
     out: list[tuple[Any, list[PredictedSignal]]] = []
     for h, sigs in kept:
         merged = False
         for i, (oh, osigs) in enumerate(out):
-            if (h.component, h.fault_class) != (oh.component, oh.fault_class):
+            if h.component != oh.component:
                 continue
             a, b = {_signal_key(s) for s in sigs}, {_signal_key(s) for s in osigs}
-            if len(a & b) >= max(1, round(2 / 3 * min(len(a), len(b)))):
+            shared = a & b
+            positive = {k for k in shared if k[-1] == "False"}
+            if len(positive) >= 2:
                 extra = [s for s in sigs if _signal_key(s) not in b]
                 out[i] = (oh, (osigs + extra)[:4])
                 if run:
-                    run.log("warning", f"{h.id} merged into {oh.id}: same component, class "
-                                       f"and {len(a & b)} shared predictions")
+                    run.log("warning", f"{h.id} merged into {oh.id}: same component and "
+                                       f"{len(positive)} shared positive predictions")
                 merged = True
                 break
         if not merged:

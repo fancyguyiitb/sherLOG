@@ -194,3 +194,26 @@ def test_a_quieter_service_is_not_a_dark_one():
     vol = result({"volumes": {"worker": {"count": 900, "baseline": 9000, "last_minute": 180,
                                          "baseline_per_minute": 1885.0}}})
     assert coverage_gaps("log_stats", {"service": "*"}, vol) == []
+
+
+def test_same_diagnosis_under_two_class_labels_merges():
+    """F-02 matrix run: 'Redis maxmemory lowered' (config) and 'Redis memory exhaustion'
+    (resource) shared both discriminating checks and split the posterior 0.456 / 0.453."""
+    from types import SimpleNamespace as NS
+
+    from sherlog.engine.run import dedupe_hypotheses
+    evict = sig(promql="rate(redis_evicted_keys_total[1m])")
+    miss = sig(promql="discriminator:cache_miss_rate")
+    restart = sig(tool="runtime_state", condition="restarted", service="redis", promql="")
+    mem = sig(promql="redis_memory_used_bytes", condition="above", threshold=4e6)
+    nodeploy = sig(tool="git_diff_since", condition="deploy_present", promql="", negate=True)
+    h1 = NS(id="H1", component="redis", fault_class="config")
+    h3 = NS(id="H3", component="redis", fault_class="resource")
+    out = dedupe_hypotheses([(h1, [miss, evict, restart, nodeploy]), (h3, [mem, evict, miss, nodeploy])])
+    assert [h.id for h, _ in out] == ["H1"]
+    # generic shared negations alone never merge
+    ttl = NS(id="H2", component="orders-svc", fault_class="config")
+    reg = NS(id="H4", component="orders-svc", fault_class="code_regression")
+    cfg = sig(tool="log_stats", condition="config_changed", service="orders-svc", promql="")
+    out = dedupe_hypotheses([(ttl, [miss, cfg, nodeploy]), (reg, [miss, nodeploy, sig(promql="db_q")])])
+    assert len(out) == 2
