@@ -106,6 +106,47 @@ cause wrong — and the catalog records that specific wrong answer in advance, a
 
 ---
 
+## Results (v1 matrix, measured)
+
+39 autonomous runs on engine commit `71fd514`: 6 faults x 3 repetitions x 2 decoy
+conditions, plus 3 runs of the abstention case F-07. Every run was injected, detected,
+investigated and scored with no human in the loop. Scoring is code-only and was defined
+before the run. Full tables: [`docs/RESULTS.md`](docs/RESULTS.md).
+
+| Metric | Result |
+|---|---|
+| Detection (SLO burn-rate alert within 8 min of injection) | 97% (38/39) |
+| RCA accuracy@1, end to end (undetected runs count as misses) | 0.75 ± 0.43 |
+| Correct abstention on the unobservable fault F-07 | 3/3 |
+| Decoy resistance (benign deploy / mild Redis latency never blamed) | 18/18 |
+| Origin localisation | 87% |
+| Claims stripped by citation verification | 12.0% (20/167) |
+| MTTD (injection -> alert) | 77 ± 46 s |
+| Detection -> verdict (includes a fixed 60 s settle) | 107 ± 6 s |
+| Model cost per investigation | $0.09 ± $0.02 (matrix total $3.67) |
+
+Per fault, RCA@1: F-01 cache TTL 6/6 · F-05 N+1 regression 6/6 · F-04 slow provider 5/6 ·
+F-03 pool size 4/6 (one run injected at the traffic trough was never detected) ·
+F-06 dead-letter removal 3/6 · F-02 Redis eviction 3/6.
+
+**What the misses are.** Almost every miss is the system *declining* to answer, not answering
+wrongly. Across the 36 solvable runs it gave a scored-wrong answer in 2, both on F-06,
+where it named the right component and deploy but described the mechanism too vaguely for
+the strict scorer ("broke job completion"). The rest are abstentions:
+
+- F-02: two well-supported rivals tie under the per-evidence-kind cap and the margin gate
+  declines.
+- F-03 and F-04: one abstention each on a low margin.
+- F-06: one engine failure (fewer than three distinct hypotheses), scored as a failure, not
+  retried away.
+
+Each is written up with its evidence in [`docs/BUILD_LOG.md`](docs/BUILD_LOG.md) §4.
+
+Service localisation (63%) is the weakest metric. It stays at 0% on F-02 and F-04, where
+the reports name the gateway or orders-svc instead of the catalog's proximate service.
+
+---
+
 ## Running it
 
 Prerequisites: Docker Desktop (8 GB), Python 3.12+, and a `.env` at the repo root with
@@ -200,3 +241,5 @@ drive.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — the seven planes and the design decisions behind them
 - [`V1_SCOPE.md`](V1_SCOPE.md) — the locked v1 scope: target app, fault catalog, monitoring, reasoning stack
 - [`docs/SCORING.md`](docs/SCORING.md) — how a diagnosis is judged correct, written before any results existed
+- [`docs/RESULTS.md`](docs/RESULTS.md) — the v1 matrix, every run
+- [`docs/BUILD_LOG.md`](docs/BUILD_LOG.md) — every bug found and fixed, open issues, how to resume

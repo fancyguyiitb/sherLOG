@@ -13,8 +13,8 @@ work can be resumed — or re-run — without rediscovering any of it. Commits a
 | Testbed (Nimbus, 5 services + Postgres/Redis/Toxiproxy + k6) | running, real SQL / cache / OTel traces |
 | Fault injector (config, git commit, chaos, data) + ground truth | working end to end |
 | Engine: 7 tools, 6 stages, LangSmith tracing | working |
-| Eval matrix: 39 runs (6 faults x 3 reps x 2 decoy modes + 3x F-07) | **running on commit `71fd514`**, started 15:22 UTC, ETA ~01:45 UTC |
-| Results report | `python -m eval.report` -> `docs/RESULTS.md` after the matrix |
+| Eval matrix: 39 runs (6 faults x 3 reps x 2 decoy modes + 3x F-07) | **complete** on commit `71fd514`, 15:22 -> 23:30 UTC 2026-11-26, $3.67 in model calls |
+| Results report | `docs/RESULTS.md` (headline: detection 97%, RCA@1 end-to-end 0.75 +/- 0.43, F-07 abstention 3/3, decoys 18/18, 12.0% claims stripped) |
 
 **To resume the matrix if it dies:** `make up` (if the stack is down), then
 `.venv/Scripts/python -u -W ignore -m eval.run >> runtime/eval/matrix.log 2>&1`.
@@ -38,7 +38,8 @@ superseded by the clean restart on `71fd514` (bugs B16, B17). Not counted.
 | `fc41fc2` | Overnight hardening; evidence-gap gate; duplicate merge; F-02 4mb; TTL jitter |
 | `4b4c8ea` | Save retries; non-budget errors never scored |
 | `a1ea450` | Coverage gap = silence, not "quieter" |
-| `71fd514` | Duplicate merge ignores fault-class label |
+| `71fd514` | Duplicate merge ignores fault-class label — **the matrix commit** |
+| `7e0b8bf` | This build log |
 
 ---
 
@@ -116,7 +117,9 @@ not by reading it.
 
 | # | Issue | Evidence | Likely fix |
 |---|---|---|---|
-| O1 | **Symptom-level hypotheses tie with the cause.** "orders-svc pool saturation" (all-symptom predictions) tied 0.456/0.453 with the correct Redis hypothesis; both hit the per-kind caps | matrix 2, F-02 rep1 | explains-away rule: support from checks a rival also predicts, where the rival explains strictly more, does not count |
+| O1 | **Cap saturation makes well-supported rivals indistinguishable.** Two hypotheses that both collect strong support hit the per-kind caps (+2.0/kind) and land at near-identical posteriors, so the margin rests only on the few discriminating checks. Seen as a symptom-level hypothesis tying the cause (F-02: "orders-svc pool saturation" 0.453 vs Redis maxmemory 0.456) and as two config hypotheses in one service tying (F-03 rep1 off: pool 0.469 vs cache-TTL 0.437) | matrix 2, F-02 (most reps), F-03 | explains-away rule (support from checks a rival also predicts, where the rival explains strictly more, does not count); or weight discriminating checks outside the cap |
+| O8 | **F-03 detectability is load-dependent.** Injected at the diurnal trough (~10 rps), a 1-connection pool (~13 rps capacity at ~75 ms holds) keeps up: 0 waiters, SLIs back to 1.00 after the restart blip, never detected. At 13-16 rps it saturates within a minute | matrix 2, run 35 (F-03 rep3 off) | realistic (capacity faults show at peak); either inject capacity faults at a known load phase, or have the eval record the traffic level at injection and report detection per load band |
+| O7 | **Engine failures were classified as infrastructure and retried** (survivorship bias). Rule "any non-budget error -> harness error, retry" caught "hypothesize produced 2 distinct checkable hypotheses after a re-ask" (F-06 rep2 off), an engine outcome | matrix 2, run 25 | in the reported numbers, engine-originated errors count as scored failures (abstention, reason `no_distinct_hypotheses`) on the first attempt; the retry is listed, not substituted. Runner fix: only network/provider/persistence/tool errors retry |
 | O2 | Statements that omit the mechanism ("broke job completion") score 0 under the strict scorer | matrix 2, F-06 rep1 | prompt: name the specific code path / setting changed |
 | O3 | `proximate_service` is ambiguous on F-04 (orders-svc saturates first, catalog says payments-svc) | dev F-04 | left as defined; reported |
 | O4 | `eval/replay.py` cannot replay `runtime_state` (Docker has no history) | dev | dev-only tool; never report replay numbers |
@@ -125,6 +128,25 @@ not by reading it.
 
 ---
 
-## 5. Cost so far
+## 5. Matrix outcome, per fault (RCA@1)
 
-Development runs ~$2.5; aborted matrix ~$0.7; clean matrix ~$4-5 expected. LangSmith free tier.
+| Fault | Score | Misses and why |
+|---|---|---|
+| F-01 cache TTL -> 0 | 6/6 | — |
+| F-05 N+1 regression (+ decoy commit) | 6/6 | — |
+| F-04 slow payment provider | 5/6 | 1 abstention, low margin |
+| F-03 pool -> 1 | 4/6 | 1 abstention (O1, TTL vs pool tie); 1 not detected at the traffic trough (O8) |
+| F-06 dead-letter branch removed | 3/6 | 2 vague mechanism wording (O2); 1 engine failure, fewer than 3 distinct hypotheses (O7) |
+| F-02 Redis maxmemory | 3/6 | 3 abstentions, rival ties under the evidence caps (O1) |
+| F-07 telemetry blackout | abstained 3/3; full credit 2/3 | 1 run named the wrong proximate service |
+
+Scored-wrong answers on solvable faults: 2 of 36 (both F-06, O2). Every other miss is an
+abstention or a non-detection.
+
+**Highest-value next fixes, in order:** O1 (explains-away / discriminating checks outside the
+cap; recovers most F-02 and F-03 misses), O2 (mechanism specificity in the report prompt),
+O8 (record load at injection), O3 (proximate-service definition in examples).
+
+## 6. Cost
+
+Development runs ~$2.5; aborted first matrix ~$0.7; clean matrix $3.67. LangSmith free tier.
