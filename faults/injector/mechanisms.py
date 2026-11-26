@@ -26,6 +26,7 @@ later run in the eval matrix, and a global reset cannot half-succeed silently.
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -200,6 +201,16 @@ def reset_environment() -> None:
 
     with psycopg.connect(TRUTH_DSN, autocommit=True) as conn:
         conn.execute("UPDATE injections SET reverted_at = now() WHERE reverted_at IS NULL")
+
+    # Any container not running is dirty too, whatever the code and env say: an
+    # interrupted reset (or a crashed service) must not survive into the next run.
+    for svc in (*APP_SERVICES, "redis"):
+        state = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", f"nimbus-{svc}-1"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        if state != "true":
+            dirty.add(svc)
 
     services = sorted(s for s in dirty if s in (*APP_SERVICES, "redis"))
     if services:

@@ -204,9 +204,41 @@ def _identity_counts(service: str, w: Window) -> dict[tuple[str, str], int]:
             int(float(r["value"][1])) for r in _loki_instant(logql, w.end)}
 
 
+def log_volume(w: Window) -> ToolResult:
+    """log_stats(service="*"): log line volume per service, window vs baseline. This is how
+    telemetry *coverage* is checked — a service that goes quiet is an evidence gap, and
+    gaps must be found by looking, not by hoping a hypothesis happens to query that service."""
+    q = 'sum by (service) (count_over_time({service=~".+"} [%s]))' % w.range_str
+    cur = {r["metric"].get("service", "?"): int(float(r["value"][1]))
+           for r in _loki_instant(q, w.end)}
+    base = {r["metric"].get("service", "?"): int(float(r["value"][1]))
+            for r in _loki_instant(q, w.baseline.end)}
+    # Coverage is about whether the service is emitting NOW: a blackout that began
+    # mid-window still leaves the window total high. So also take the last minute.
+    q1 = 'sum by (service) (count_over_time({service=~".+"} [1m]))'
+    last = {r["metric"].get("service", "?"): int(float(r["value"][1]))
+            for r in _loki_instant(q1, w.end)}
+    minutes = max(w.length.total_seconds() / 60, 1)
+    lines, volumes = [], {}
+    for svc in sorted(set(cur) | set(base)):
+        c, b, l1 = cur.get(svc, 0), base.get(svc, 0), last.get(svc, 0)
+        per_min = b / minutes
+        volumes[svc] = {"count": c, "baseline": b, "last_minute": l1,
+                        "baseline_per_minute": round(per_min, 1)}
+        flag = "  <-- WENT QUIET" if per_min >= 20 and l1 < 0.1 * per_min else ""
+        lines.append(f"  {svc:<18} window={c:<7} baseline={b:<7} last_minute={l1:<6} "
+                     f"(baseline ~{per_min:.0f}/min){flag}")
+    content = (f"log_stats * (log volume per service) window {w.start:%H:%M:%S}-{w.end:%H:%M:%S}Z "
+               f"vs baseline:\n" + "\n".join(lines))
+    return ToolResult(_ev("log", "log_stats", {"service": "*"}, w, content, "loki"),
+                      {"volumes": volumes})
+
+
 def log_stats(service: str, w: Window) -> ToolResult:
     """Statistics first, never raw lines: Drain3 templates with counts vs. the baseline
     window, novelty flags, and which config_hash / commit_sha the service ran under."""
+    if service in ("*", "all"):
+        return log_volume(w)
     args = {"service": service}
     cur = _template_counts(service, w)
     base = _template_counts(service, w.baseline)

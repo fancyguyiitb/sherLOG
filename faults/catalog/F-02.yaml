@@ -10,19 +10,19 @@ inject:
   mode: config_patch
   target: redis
   change:
-    REDIS_MAXMEMORY: 8mb          # from 256mb
+    REDIS_MAXMEMORY: 4mb          # from 256mb (8mb measured: 13.5% slow, just under fast burn)
   revert:
     REDIS_MAXMEMORY: 256mb
 
 ground_truth:
   root_cause: >-
-    Redis maxmemory was reduced to 8mb, so the catalog working set no longer fits and keys
+    Redis maxmemory was reduced to 4mb, so the catalog working set no longer fits and keys
     are evicted continuously under memory pressure, collapsing the cache hit rate and
     pushing catalog reads onto Postgres.
   proximate_service: orders-svc
   originating_component: redis
   causal_chain:
-    - "redis maxmemory reduced from 256mb to 8mb; Redis restarts with the new limit"
+    - "redis maxmemory reduced from 256mb to 4mb; Redis restarts with the new limit"
     - "catalog working set exceeds the limit; allkeys-lru evicts continuously"
     - "orders-svc cache miss rate rises even though its own config is unchanged"
     - "Postgres read QPS rises, query latency climbs"

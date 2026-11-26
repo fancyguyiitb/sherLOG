@@ -20,6 +20,7 @@ expensive, which is the whole reason the cache exists, and why losing it hurts.
 from __future__ import annotations
 
 import json
+import random
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
@@ -82,8 +83,12 @@ class CatalogRepo:
         if self.cache is None or ttl <= 0:
             return
         for item in items:
+            # +/-30% jitter. Entries written together (every restart warms all 200 SKUs in
+            # the same few seconds) would otherwise all expire together, and every TTL
+            # period would bring a synchronised miss storm — a thundering herd.
+            jittered = max(1, int(ttl * random.uniform(0.7, 1.3)))
             try:
-                await self.cache.setex(f"catalog:{item.sku}", ttl, json.dumps(asdict(item)))
+                await self.cache.setex(f"catalog:{item.sku}", jittered, json.dumps(asdict(item)))
             except Exception:
                 observe_cache(self.settings.service, "set", "error")
                 return

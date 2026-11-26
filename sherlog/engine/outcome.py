@@ -43,6 +43,7 @@ def decide(
     budget_exhausted: bool = False,
     provider_unavailable: bool = False,
     verified_claims: int | None = None,
+    leader_unobservable: bool = False,
 ) -> Decision:
     """Map ledger state onto one of four outcomes.
 
@@ -70,6 +71,13 @@ def decide(
         return Decision("INSUFFICIENT_EVIDENCE", 0.0, "no_hypotheses", None, m)
 
     confidence = top.posterior
+
+    if leader_unobservable:
+        # The leading explanation locates the cause inside a component whose telemetry
+        # went dark during the incident. Nothing about its internals can be established,
+        # so no posterior licenses naming a cause there: state the proximate service and
+        # the gap, and abstain.
+        return Decision("INSUFFICIENT_EVIDENCE", confidence, "evidence_gap", top.id, m)
 
     if verified_claims == 0:
         # Every claim in the report failed citation verification: there is no grounded

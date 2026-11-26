@@ -53,7 +53,7 @@ class GroundTruth(BaseModel):
     """
 
     root_cause: str
-    proximate_service: str  # where it hurts first
+    proximate_service: str  # first service on the causal path whose own behaviour degrades
     originating_component: str  # where it starts
     causal_chain: list[str] = Field(min_length=2)
     correct_fix_class: str

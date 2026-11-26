@@ -144,3 +144,43 @@ def test_negated_prediction_inverts_but_never_invents_data():
     assert evaluate(s, result({"deploys": [{"service": "orders-svc", "sha": "a", "at": "t"}]})).present is False
     gap = sig(condition="rises", negate=True)
     assert evaluate(gap, result({"series": []}, no_data=True)).present is None
+
+
+def test_duplicate_hypotheses_merge_but_distinct_mechanisms_do_not():
+    from types import SimpleNamespace as NS
+
+    from sherlog.engine.run import dedupe_hypotheses
+    evict = sig(promql="rate(redis_evicted_keys_total[1m])")
+    miss = sig(promql="discriminator:cache_miss_rate")
+    restart = sig(tool="runtime_state", condition="restarted", service="redis", promql="")
+    pool = sig(promql="db_pool_size", condition="falls")
+    h1 = NS(id="H1", component="redis", fault_class="config")
+    h4 = NS(id="H4", component="redis", fault_class="config")
+    ttl = NS(id="H2", component="orders-svc", fault_class="config")
+    poolh = NS(id="H3", component="orders-svc", fault_class="config")
+    out = dedupe_hypotheses([(h1, [evict, miss, restart]), (h4, [evict, miss]),
+                             (ttl, [miss, restart]), (poolh, [pool])])
+    assert [h.id for h, _ in out] == ["H1", "H2", "H3"]
+
+
+def test_coverage_gaps_flag_a_service_that_went_dark():
+    from sherlog.engine.run import coverage_gaps
+
+    vol = result({"volumes": {
+        "payments-svc": {"count": 7000, "baseline": 12000, "last_minute": 3,
+                         "baseline_per_minute": 2700.0},
+        "orders-svc": {"count": 20000, "baseline": 18000, "last_minute": 4800,
+                       "baseline_per_minute": 4000.0}}})
+    gaps = coverage_gaps("log_stats", {"service": "*"}, vol)
+    assert len(gaps) == 1 and gaps[0].startswith("payments-svc")
+    up = result({"series": [
+        {"labels": {"instance": "payments-svc"}, "baseline_mean": 1.0, "last": 0.0},
+        {"labels": {"instance": "worker"}, "baseline_mean": 0.0, "last": 0.0}]})
+    gaps = coverage_gaps("metric_query", {"promql": "up"}, up)
+    assert len(gaps) == 1 and gaps[0].startswith("payments-svc")
+
+
+def test_no_conclusion_about_a_component_that_went_dark():
+    d = decide([hyp("H1", 0.90), hyp("H2", 0.05), hyp("H3", 0.05)], critic_concurs=True,
+               unverified_claims=0, verified_claims=4, leader_unobservable=True)
+    assert d.outcome == "INSUFFICIENT_EVIDENCE" and d.reason == "evidence_gap"

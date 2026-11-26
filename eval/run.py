@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,6 +41,10 @@ FAULTS = ["F-01", "F-02", "F-03", "F-04", "F-05", "F-06"]
 #: detection delay, plus warm-up.
 COOLDOWN_S = 8 * 60
 DETECT_TIMEOUT_S = 8 * 60
+
+#: The engine commit every result was produced by.
+COMMIT = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short=7", "HEAD"],
+                        capture_output=True, text=True).stdout.strip()
 
 
 def matrix(faults: list[str], reps: int, decoy_modes: list[bool], abstain_reps: int) -> list[dict]:
@@ -102,38 +107,71 @@ def main() -> None:
     suffix = ("|" + args.flags) if args.flags else ""
     done = done_keys()
 
-    mechanisms.reset_environment()
-    reset_at = time.monotonic()
-    for i, r in enumerate(plan, 1):
-        k = key(r) + suffix
-        if k in done:
-            continue
-        print(f"[{i}/{len(plan)}] {k}: waiting for a clean baseline", flush=True)
-        wait_clean(reset_at)
-        fault = catalog[r["fault"]]
-        decoys = [catalog[d] for d in fault.decoys] if r["decoys"] else []
-        rec, injection_id = mechanisms.inject(fault, decoys)
-        print(f"  injected at {rec.injected_at:%H:%M:%S}", flush=True)
+    reset_at = reset_with_retry()
+    errors_file = RESULTS.with_name(RESULTS.stem + ".errors.jsonl")
+    # Up to three passes: a run that hit a harness failure or an unreachable model
+    # provider produced no result about the engine, so it is retried rather than scored.
+    for pass_no in range(1, 4):
+        done = done_keys()
+        todo = [r for r in plan if key(r) + suffix not in done]
+        if not todo:
+            break
+        if pass_no > 1:
+            print(f"retry pass {pass_no}: {len(todo)} run(s)", flush=True)
+        for i, r in enumerate(todo, 1):
+            k = key(r) + suffix
+            print(f"[{i}/{len(todo)}] {k}: waiting for a clean baseline", flush=True)
+            try:
+                line = run_one(k, r, catalog, llm, flags, reset_at)
+                if (line["score"].get("error") or "").startswith("all rungs failed"):
+                    raise RuntimeError(f"provider unavailable: {line['score']['error']}")
+                with RESULTS.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(line, default=str) + "\n")
+            except Exception as exc:  # not a result about the engine: logged, retried
+                print(f"  HARNESS_ERROR {type(exc).__name__}: {exc}", flush=True)
+                with errors_file.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps({"key": k, "pass": pass_no,
+                                         "error": f"{type(exc).__name__}: {exc}",
+                                         "at": datetime.now(timezone.utc).isoformat()}) + "\n")
+            reset_at = reset_with_retry()
 
-        incident = wait_for_incident(DETECT_TIMEOUT_S)
-        line: dict = {"key": k, "run": r, "injection_id": injection_id,
-                      "at": datetime.now(timezone.utc).isoformat()}
-        if incident is None:
-            line["score"] = {"fault_id": r["fault"], "outcome": "NOT_DETECTED", "rca": 0.0}
-            print("  not detected within timeout", flush=True)
-        else:
-            run = investigate(incident, llm, flags=flags, label=k)
-            s = score(run.to_dict(), fetch_injection(injection_id))
-            line["score"] = s
-            line["investigation_id"] = run.id
-            print(f"  {s['outcome']} rca={s['rca']} proximate={s['proximate_correct']} "
-                  f"origin={s['originating_correct']} decoy_blamed={s['decoy_blamed']} "
-                  f"mttd={s['mttd_s']:.0f}s cost=${s['cost_usd']:.3f} :: {s['leader']}",
-                  flush=True)
-        with RESULTS.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(line, default=str) + "\n")
-        mechanisms.reset_environment()
-        reset_at = time.monotonic()
+
+def run_one(k: str, r: dict, catalog: dict, llm: OpenAIClient, flags: dict,
+            reset_at: float) -> dict:
+    wait_clean(reset_at)
+    fault = catalog[r["fault"]]
+    decoys = [catalog[d] for d in fault.decoys] if r["decoys"] else []
+    rec, injection_id = mechanisms.inject(fault, decoys)
+    print(f"  injected at {rec.injected_at:%H:%M:%S}", flush=True)
+
+    incident = wait_for_incident(DETECT_TIMEOUT_S)
+    line: dict = {"key": k, "run": r, "injection_id": injection_id, "commit": COMMIT,
+                  "at": datetime.now(timezone.utc).isoformat()}
+    if incident is None:
+        line["score"] = {"fault_id": r["fault"], "outcome": "NOT_DETECTED", "rca": 0.0,
+                         "decoys": [d.id for d in decoys]}
+        print("  not detected within timeout", flush=True)
+        return line
+    run = investigate(incident, llm, flags=flags, label=k)
+    s = score(run.to_dict(), fetch_injection(injection_id))
+    line["score"] = s
+    line["investigation_id"] = run.id
+    print(f"  {s['outcome']} rca={s['rca']} proximate={s['proximate_correct']} "
+          f"origin={s['originating_correct']} decoy_blamed={s['decoy_blamed']} "
+          f"mttd={s['mttd_s']:.0f}s cost=${s['cost_usd']:.3f} :: {s['leader']}", flush=True)
+    return line
+
+
+def reset_with_retry() -> float:
+    """A failed reset contaminates every later run, so it is retried, then fatal."""
+    for attempt in range(5):
+        try:
+            mechanisms.reset_environment()
+            return time.monotonic()
+        except Exception as exc:
+            print(f"  reset failed ({type(exc).__name__}: {exc}); retrying", flush=True)
+            time.sleep(30 * (attempt + 1))
+    raise RuntimeError("environment reset failed 5 times; stopping the matrix")
 
 
 if __name__ == "__main__":

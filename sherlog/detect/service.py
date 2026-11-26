@@ -22,6 +22,8 @@ from .burn_rate import DEFAULT_RULES, BurnRateAlert, correlate, evaluate
 
 OBJECTIVE = 0.99
 POLL_S = 15
+#: Baseline checkout load is ~10-16 rps (diurnal); below this the load generator is not running.
+MIN_HEALTHY_RPS = 5.0
 
 #: (slo, long-window recording rule, short-window recording rule) per burn-rate rule.
 SLIS: dict[str, dict[str, tuple[str, str]]] = {
@@ -33,9 +35,24 @@ SLIS: dict[str, dict[str, tuple[str, str]]] = {
 }
 
 
+class PrometheusUnavailable(RuntimeError):
+    pass
+
+
 def _instant(expr: str) -> float | None:
-    r = httpx.get(f"{SETTINGS.endpoints.prometheus}/api/v1/query", params={"query": expr},
-                  timeout=10).json()
+    """One instant query, retried. A transient stall is not an incident and must not crash
+    an overnight eval; a persistent one raises PrometheusUnavailable."""
+    last: Exception | None = None
+    for attempt in range(3):
+        try:
+            r = httpx.get(f"{SETTINGS.endpoints.prometheus}/api/v1/query",
+                          params={"query": expr}, timeout=10).json()
+            break
+        except (httpx.HTTPError, ValueError) as exc:
+            last = exc
+            time.sleep(2 * (attempt + 1))
+    else:
+        raise PrometheusUnavailable(f"prometheus query failed 3x: {last}")
     res = r.get("data", {}).get("result", [])
     if not res:
         return None
@@ -63,13 +80,25 @@ def poll() -> list[BurnRateAlert]:
 def healthy() -> bool:
     """No alert firing AND every 5-minute SLI back at objective — the precondition for
     injecting the next fault. "Not alerting" alone is too weak: a system recovering from
-    the last run can sit below objective without crossing a burn threshold."""
-    if poll():
-        return False
-    for slo in SLIS:
-        v = _instant(f"sli:{slo}:ratio_rate5m")
-        if v is not None and v < OBJECTIVE:
+    the last run can sit below objective without crossing a burn threshold. Unreachable
+    Prometheus is never healthy: nothing gets injected into a system we cannot see."""
+    try:
+        # No data is not health. With no traffic every SLI is 0/0 and "not below
+        # objective"; a fault injected into a system with no load cannot breach anything.
+        rps = _instant('sum(rate(http_requests_total{service="gateway",route="POST /checkout"}[1m]))')
+        if rps is None or rps < MIN_HEALTHY_RPS:
             return False
+        down = _instant('count(up{job="nimbus-services"} == 0)')
+        if down:
+            return False
+        if poll():
+            return False
+        for slo in SLIS:
+            v = _instant(f"sli:{slo}:ratio_rate5m")
+            if v is None or v < OBJECTIVE:
+                return False
+    except PrometheusUnavailable:
+        return False
     return True
 
 
@@ -120,7 +149,10 @@ def open_incident(alerts: list[BurnRateAlert]) -> dict[str, Any]:
 def wait_for_incident(timeout_s: float, poll_s: float = POLL_S) -> dict[str, Any] | None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        alerts = poll()
+        try:
+            alerts = poll()
+        except PrometheusUnavailable:
+            alerts = []
         if alerts:
             return open_incident(alerts)
         time.sleep(poll_s)

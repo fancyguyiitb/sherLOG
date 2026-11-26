@@ -159,3 +159,11 @@ no-git, no-ledger — so that "the ledger helped" is a measured delta rather tha
 
 Why: a code-scored metric is stricter and fully reproducible; it can only under-credit a
 correct answer phrased with an unexpected fault class, never over-credit a wrong one.
+
+### 2026-11-26 — proximate service, definition made explicit
+
+Before the first matrix run. The report schema described `proximate_service` as "where
+users feel it first", which the model read as the gateway on every fault; the catalog has
+always meant the first service on the causal path whose own behaviour degrades (orders-svc
+for F-05, payments-svc for F-04). The schema's instruction now states the catalog's
+definition. Ground truth is unchanged.

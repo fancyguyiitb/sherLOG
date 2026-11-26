@@ -187,6 +187,7 @@ SNAPSHOT = [
     ("metric_query", {"promql": "histogram_quantile(0.99, sum by (service, upstream, le) "
                                 "(rate(upstream_duration_seconds_bucket[1m])))"}),
     ("metric_query", {"promql": "up"}),
+    ("log_stats", {"service": "*"}),                  # telemetry coverage: log volume per service
     # Saturation (the S of USE): the gauges every resource-shaped fault moves first.
     ("metric_query", {"promql": "max by (service) (db_pool_waiters)"}),
     ("metric_query", {"promql": "discriminator:cache_miss_rate"}),
@@ -200,17 +201,44 @@ SNAPSHOT = [
 ]
 
 
+def coverage_gaps(name: str, args: dict[str, Any], result: ToolResult) -> list[str]:
+    """Telemetry coverage, checked by code. A service whose log volume collapsed, or whose
+    metrics scrape went down, is an evidence gap: nothing about its internals can be
+    established for the window, and the report must say so rather than argue from silence."""
+    gaps = []
+    if name == "log_stats" and args.get("service") == "*":
+        for svc, v in result.facts.get("volumes", {}).items():
+            if v["baseline_per_minute"] >= 20 and v["last_minute"] < 0.1 * v["baseline_per_minute"]:
+                gaps.append(f"{svc}: stopped logging ({v['last_minute']} lines in the last "
+                            f"minute vs ~{v['baseline_per_minute']:.0f}/min in baseline); its "
+                            "internals are not observable")
+    if name == "metric_query" and args.get("promql") == "up":
+        for s in result.facts.get("series", []):
+            inst = s["labels"].get("instance", "?")
+            if s.get("baseline_mean", 0) >= 0.9 and s.get("last", 1) == 0:
+                gaps.append(f"{inst}: metrics scrape is down (up=0 at window end, up in "
+                            "baseline); its own metrics are not observable")
+    return gaps
+
+
 @traceable(name="stage:triage")
 def triage(run: Run) -> list[str]:
     """Deterministic snapshot first, then the model classifies it. The snapshot is the
-    same seventeen queries every time (golden signals, saturation gauges, and what
-    changed), so triage cannot be steered by what it chose to fetch."""
-    ids = [run.tool(n, a)[1] for n, a in SNAPSHOT]
+    same eighteen queries every time (golden signals, saturation gauges, and what
+    changed, telemetry coverage), so triage cannot be steered by what it chose to fetch."""
+    ids = []
+    for n, a in SNAPSHOT:
+        result, eid = run.tool(n, a)
+        ids.append(eid)
+        run.gaps.extend(coverage_gaps(n, a, result))
+    for g in run.gaps:
+        run.log("gap", g)
     alerts = "\n".join(f"- {a['slo']} {a['severity']} burn_rate={a['burn_rate']:.1f}x"
                        for a in run.incident["alerts"])
     out: TriageOut = run.ask("triage", [{"role": "user", "content": (
         f"Incident {run.incident['id']} opened autonomously at {run.incident['detected_at']} by "
         f"SLO burn-rate detection:\n{alerts}\n\nTopology:\n{TOPOLOGY}\n\n"
+        f"Telemetry gaps found by code: {run.gaps or 'none'}\n\n"
         "Classify the incident from the snapshot evidence below. Name the services that "
         "show the symptom. Do not guess at causes yet.")}], TriageOut, ids)
     run.triage = out.model_dump()
@@ -272,11 +300,19 @@ def hypothesize(run: Run, snapshot_ids: list[str]) -> None:
                 kept.append((h, sigs))
             else:
                 problems.append(f"{h.id}: no checkable predictions")
+        before = len(kept)
+        kept = dedupe_hypotheses(kept, run)
+        if len(kept) < before:
+            problems.append(f"{before - len(kept)} hypothesis(es) duplicated another "
+                            "(same component, class and predictions); propose distinct ones")
         if len(kept) >= 3:
             break
         prompt += "\n\nYour previous answer was rejected:\n" + "\n".join(problems)
     for p in problems:
         run.log("warning", p)
+    if len(kept) < 3:
+        raise RuntimeError(f"hypothesize produced {len(kept)} distinct checkable "
+                           "hypotheses after a re-ask")
 
     hyps = []
     for h, sigs in kept:
@@ -290,6 +326,43 @@ def hypothesize(run: Run, snapshot_ids: list[str]) -> None:
     for h in hyps:
         run.log("hypothesis", f"{h.id}: {h.statement}", hypothesis_id=h.id,
                 predictions=h.predicted_signals)
+
+
+def _signal_key(s: PredictedSignal) -> tuple[str, ...]:
+    return (s.tool, s.condition, s.service, " ".join(s.promql.split()), s.event, s.span,
+            str(s.negate))
+
+
+def dedupe_hypotheses(kept: list[tuple[Any, list[PredictedSignal]]],
+                      run: Run | None = None) -> list[tuple[Any, list[PredictedSignal]]]:
+    """Merge hypotheses that are the same explanation in different words.
+
+    Two duplicates split the posterior between them, the margin collapses to zero, and the
+    gate abstains on a diagnosis the evidence settled. So, mechanically: same originating
+    component AND same fault class AND at least two-thirds of the smaller prediction set
+    being identical checks -> the later one merges into the earlier (its extra predictions
+    are kept). Same component and class alone is NOT a duplicate: a cache-TTL change and a
+    pool-size change are both orders-svc config faults with different mechanisms, and
+    their predictions differ.
+    """
+    out: list[tuple[Any, list[PredictedSignal]]] = []
+    for h, sigs in kept:
+        merged = False
+        for i, (oh, osigs) in enumerate(out):
+            if (h.component, h.fault_class) != (oh.component, oh.fault_class):
+                continue
+            a, b = {_signal_key(s) for s in sigs}, {_signal_key(s) for s in osigs}
+            if len(a & b) >= max(1, round(2 / 3 * min(len(a), len(b)))):
+                extra = [s for s in sigs if _signal_key(s) not in b]
+                out[i] = (oh, (osigs + extra)[:4])
+                if run:
+                    run.log("warning", f"{h.id} merged into {oh.id}: same component, class "
+                                       f"and {len(a & b)} shared predictions")
+                merged = True
+                break
+        if not merged:
+            out.append((h, sigs))
+    return out
 
 
 # ======================================================================= Stage 3: Gather
@@ -518,6 +591,16 @@ def report(run: Run) -> None:
 
 # ================================================================================ driver
 
+def _leader_unobservable(run: Run) -> bool:
+    """Does the leading hypothesis originate in a component the coverage check found dark?"""
+    leader = run.inv.leader
+    if leader is None:
+        return False
+    dark = {g.split(":", 1)[0].strip() for g in run.gaps
+            if "not observable" in g}
+    return run.meta.get(leader.id, {}).get("component") in dark
+
+
 @traceable(name="investigation")
 def investigate(incident: dict[str, Any], llm: LLMClient, *,
                 flags: dict[str, bool] | None = None, label: str = "") -> Run:
@@ -557,8 +640,8 @@ def investigate(incident: dict[str, Any], llm: LLMClient, *,
     run.inv.decision = decide(run.inv.hypotheses, critic_concurs=run.inv.critic_concurs,
                               unverified_claims=unverified, budget_exhausted=budget_hit,
                               verified_claims=run.verification.get("verified") if run.verification else None,
-                              provider_unavailable=provider_down or (run.error is not None
-                                                                     and not run.inv.hypotheses))
+                              provider_unavailable=provider_down,
+                              leader_unobservable=_leader_unobservable(run))
     run.inv.ended_at = datetime.now(timezone.utc)
     run.inv.stage = "done"
     d = run.inv.decision

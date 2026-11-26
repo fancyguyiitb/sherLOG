@@ -161,7 +161,7 @@ and a technical reviewer spots it immediately.
 
 **F-02** `redis_eviction_storm` (config)
 
-- Inject: Redis `maxmemory: 256mb → 8mb`, restart Redis.
+- Inject: Redis `maxmemory: 256mb → 4mb` (v1: 8mb measured just under the fast-burn threshold), restart Redis.
 - Chain: keys evicted under memory pressure → cache miss rate rises → identical downstream shape to F-01.
 - Discriminating signal: `redis_evicted_keys_total` **rising steeply**, `redis_memory_used_bytes` pinned at the limit, and orders-svc config hash **unchanged**.
 - Class: dependency / multi-hop.

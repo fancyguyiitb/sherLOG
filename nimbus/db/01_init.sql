@@ -32,7 +32,7 @@ CREATE TABLE catalog (
     -- handler raises on it. A real defect reachable from real data beats a fault flag.
     price_cents INTEGER,
     -- Rich product content (~60 KB per SKU). Cached in Redis alongside the price, so the
-    -- cache's working set (~12 MB) fits comfortably in 256 MB and not at all in F-02's 8 MB.
+    -- cache's working set (~12 MB) fits comfortably in 256 MB and not at all in F-02's 4 MB.
     description TEXT
 );
 

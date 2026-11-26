@@ -88,7 +88,12 @@ class ClaimOut(BaseModel):
 
 class ReportOut(BaseModel):
     root_cause: str
-    proximate_service: Component = Field(description="Where users feel it first.")
+    proximate_service: Component = Field(
+        description="The first service on the causal path whose OWN behaviour degrades "
+                    "(its latency, errors or throughput change), i.e. where the fault first "
+                    "becomes visible in a service we run. Not the gateway merely because "
+                    "users see errors there; the gateway is proximate only if the gateway "
+                    "itself is what degraded first.")
     originating_component: Component = Field(description="Where it starts; 'unknown' if the "
                                                          "evidence cannot establish it.")
     causal_chain: list[ClaimOut]

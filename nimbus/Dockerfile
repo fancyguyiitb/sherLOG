@@ -29,4 +29,7 @@ COPY nimbus/ ./nimbus/
 
 EXPOSE 8000-8004
 
-CMD ["sh", "-c", "uvicorn nimbus.${SERVICE}.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# --no-access-log: every request is already logged as structured JSON (http.request.end);
+# uvicorn's plain-text access line would only duplicate it, and would keep a service
+# "talking" during a telemetry blackout (F-07) when it must be silent.
+CMD ["sh", "-c", "uvicorn nimbus.${SERVICE}.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-access-log"]
