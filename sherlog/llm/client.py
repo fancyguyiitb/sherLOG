@@ -32,7 +32,10 @@ STAGE_ROLES: dict[Stage, Role] = {
     "triage": "fast",
     "hypothesize": "reasoning",
     "gather": "fast",
-    "assess": "fast",
+    # Joint labelling of every (hypothesis, evidence) pair sets the posteriors. The mini
+    # model confused "refutes a competitor" with "refutes this hypothesis"; one joint call
+    # on the balanced model costs ~$0.05 and replaces four.
+    "assess": "balanced",
     "verify": "reasoning",
     "critic": "reasoning",
     "report": "balanced",
@@ -46,7 +49,7 @@ STAGE_TOKEN_BUDGET: dict[Stage, int] = {
     "triage": 6_000,
     "hypothesize": 12_000,
     "gather": 15_000,
-    "assess": 2_000,
+    "assess": 30_000,
     "verify": 20_000,
     "critic": 10_000,
     "report": 12_000,

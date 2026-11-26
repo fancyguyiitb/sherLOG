@@ -192,14 +192,19 @@ SNAPSHOT = [
     ("metric_query", {"promql": "discriminator:cache_miss_rate"}),
     ("metric_query", {"promql": "rate(redis_evicted_keys_total[1m])"}),
     ("metric_query", {"promql": "max by (queue) (job_oldest_age_seconds)"}),
+    # Changes: the first question on any page is "what changed?". Every service's restart
+    # time and explicitly-set config, and every deployment in the period.
+    *[("runtime_state", {"service": svc})
+      for svc in ("gateway", "orders-svc", "payments-svc", "worker", "redis")],
+    ("git_diff_since", {"service": None}),
 ]
 
 
 @traceable(name="stage:triage")
 def triage(run: Run) -> list[str]:
     """Deterministic snapshot first, then the model classifies it. The snapshot is the
-    same eleven queries every time (golden signals plus saturation gauges), so triage
-    cannot be steered by what it chose to fetch."""
+    same seventeen queries every time (golden signals, saturation gauges, and what
+    changed), so triage cannot be steered by what it chose to fetch."""
     ids = [run.tool(n, a)[1] for n, a in SNAPSHOT]
     alerts = "\n".join(f"- {a['slo']} {a['severity']} burn_rate={a['burn_rate']:.1f}x"
                        for a in run.incident["alerts"])
@@ -227,7 +232,7 @@ def hypothesize(run: Run, snapshot_ids: list[str]) -> None:
         "Propose 3 to 5 COMPETING root-cause hypotheses. Cover different fault classes "
         "(configuration change, code regression shipped in a deploy, slow or failing "
         "dependency, resource saturation, bad data, missing telemetry). The service showing "
-        "the symptom is often not where the fault originates.\n\n"
+        "the symptom is often not where the fault originates. Each hypothesis names ONE specific mechanism and its trigger; if you would write 'X or Y', make them two hypotheses.\n\n"
         "For each, register 2-4 predicted_signals that MUST be observable if it is true, "
         "BEFORE any evidence is gathered for it. Each is checked mechanically by code: a "
         "prediction that checks as absent refutes the hypothesis, and you will not get to "
@@ -352,30 +357,38 @@ def _request_args(req: ToolRequest) -> tuple[str, dict[str, Any]]:
 
 @traceable(name="stage:verify")
 def verify(run: Run) -> None:
-    """Label every (hypothesis, evidence) pair; code turns labels into posteriors."""
+    """Label every (hypothesis, evidence) pair in ONE joint call; code turns labels into
+    posteriors.
+
+    Joint, not per-hypothesis: judged one hypothesis at a time, a model credits every
+    shared symptom to every candidate, and the posterior stops discriminating. Shown all
+    candidates at once, "is this more likely under H1 than under H3?" is the question it is
+    actually answering.
+    """
     all_ids = list(run.inv.evidence)
+    ledger = []
     for h in run.inv.hypotheses:
-        checks = "\n".join(f"- [{c['status']}] {c['signal']} ({c['evidence_id']})"
-                           for c in run.meta[h.id]["checks"])
-        rivals = "\n".join(f"- {o.id}: {o.statement}" for o in run.inv.hypotheses if o.id != h.id)
-        out: AssessOut = run.ask("assess", [{"role": "user", "content": (
-            f"Hypothesis {h.id}: {h.statement}\nMechanical prediction checks:\n{checks}\n\n"
-            f"Competing hypotheses:\n{rivals}\n\n"
-            "Judge each item by how much MORE likely it is under this hypothesis than under "
-            "the competitors. If a competitor predicts the item just as well (a shared "
-            "symptom), it is NEUTRAL however relevant it looks. "
-            "For EACH evidence item below, label how it bears on THIS hypothesis: "
-            "STRONG_SUPPORT (expected if true, unlikely otherwise), WEAK_SUPPORT, NEUTRAL "
-            "(irrelevant, or equally expected under alternatives), WEAK_REFUTE, STRONG_REFUTE, "
-            "DECISIVE_REFUTE (logically incompatible). Symptoms that every candidate "
-            "explanation predicts are NEUTRAL — only discriminating evidence moves the needle.")}],
-            AssessOut, all_ids)
-        for a in out.assessments:
-            if a.evidence_id not in run.inv.evidence:
-                run.log("warning", f"assessment cited unknown {a.evidence_id}; dropped")
-                continue
-            run.inv.assess(Assessment(h.id, a.evidence_id, run.inv.evidence[a.evidence_id].kind,
-                                      a.verdict, a.rationale))
+        checks = "; ".join(f"[{c['status']}] {c['signal']}" for c in run.meta[h.id]["checks"])
+        ledger.append(f"- {h.id}: {h.statement}\n    code-checked predictions: {checks}")
+    out: AssessOut = run.ask("assess", [{"role": "user", "content": (
+        "Hypotheses under test:\n" + "\n".join(ledger) + "\n\n"
+        "For EVERY evidence item below and EVERY hypothesis, give one label saying how that "
+        "item bears on THAT hypothesis (hypothesis_id + evidence_id + verdict):\n"
+        "STRONG_SUPPORT = expected if this hypothesis is true AND unlikely under the others; "
+        "WEAK_SUPPORT; NEUTRAL = irrelevant, or predicted about equally by the competitors "
+        "(shared symptoms are NEUTRAL however relevant they look); WEAK_REFUTE; "
+        "STRONG_REFUTE = unlikely if this hypothesis is true; DECISIVE_REFUTE = logically "
+        "incompatible with it.\n"
+        "The label is about the named hypothesis only. Evidence that rules out a COMPETITOR "
+        "and that this hypothesis predicts is SUPPORT for this one, never REFUTE.")}],
+        AssessOut, all_ids)
+    known = {h.id for h in run.inv.hypotheses}
+    for a in out.assessments:
+        if a.evidence_id not in run.inv.evidence or a.hypothesis_id not in known:
+            run.log("warning", f"assessment cites unknown {a.hypothesis_id}/{a.evidence_id}; dropped")
+            continue
+        run.inv.assess(Assessment(a.hypothesis_id, a.evidence_id,
+                                  run.inv.evidence[a.evidence_id].kind, a.verdict, a.rationale))
     run.inv.recompute()
     for h in run.inv.hypotheses:
         run.log("posterior", f"{h.id} posterior={h.posterior:.2f} status={h.status}",
@@ -403,11 +416,45 @@ def critic(run: Run) -> None:
         "Argue it is wrong. Is the cited evidence merely consistent with it, or does it "
         "actually exclude the alternatives? Is a symptom being mistaken for a cause? "
         "DISSENT if a better explanation fits, or if the evidence does not discriminate. "
-        "CONCUR only if you cannot find a serious objection.")}],
+        "CONCUR only if you cannot find a serious objection.\n\n"
+        "You are held to the same rule as every hypothesis: if you DISSENT, register 1-3 "
+        "checkable alternative_predictions that must be observable if your better "
+        "explanation is right (same tools and conditions as the hypotheses). Code checks "
+        "them. If every one of them checks absent, your dissent is overruled.\n" + TOOL_HELP)}],
         CriticOut, support + [e for h in run.inv.hypotheses[1:] for e in h.supporting[:2]])
     run.critic = out.model_dump()
     run.inv.critic_concurs = out.verdict == "CONCUR"
     run.log("critic", f"{out.verdict}: {out.strongest_objection}")
+    if out.verdict == "DISSENT":
+        _check_dissent(run, out)
+
+
+def _check_dissent(run: Run, out: CriticOut) -> None:
+    """A dissent is a hypothesis too. Its predictions are checked mechanically; a dissent
+    whose every checkable prediction is absent is overruled by code, not argued with.
+    A dissent with no checkable prediction, or with any present / no-data result, stands."""
+    results = []
+    for sig in out.alternative_predictions[:3]:
+        if validate(sig):
+            results.append({"signal": sig.description, "status": "UNCHECKABLE"})
+            continue
+        run.inv.governor.charge_tool()
+        name, args = tool_call(sig)
+        result = _traced_tool(name, args, run.window)
+        outcome = evaluate(sig, result)
+        eid = run.inv.attach(redact(result.evidence))
+        status = {True: "PRESENT", False: "ABSENT", None: "NO DATA"}[outcome.present]
+        results.append({"signal": sig.description, "status": status,
+                        "observed": outcome.observed, "evidence_id": eid})
+        run.log("check", f"critic [{status}] {sig.description} — {outcome.observed}",
+                evidence_id=eid, status=status)
+    run.critic["checks"] = results
+    checked = [r for r in results if r["status"] != "UNCHECKABLE"]
+    if checked and all(r["status"] == "ABSENT" for r in checked):
+        run.inv.critic_concurs = True
+        run.critic["overruled"] = True
+        run.log("critic", "dissent overruled: every prediction of the critic's alternative "
+                          "checked absent")
 
 
 # ======================================================================= Stage 6: Report

@@ -143,8 +143,9 @@ def update_posteriors(
 
 
 def _status_for(posterior: float, current: str) -> str:
-    if current == "refuted":
-        return current
+    # Status is a pure readout of the current posterior, never sticky: the ledger is a
+    # function of its evidence, and a label that outlived the number it summarised would
+    # show a "refuted" hypothesis leading the ledger.
     if posterior < 0.05:
         return "refuted"
     if posterior >= 0.55:

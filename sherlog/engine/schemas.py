@@ -58,6 +58,7 @@ class GatherOut(BaseModel):
 
 
 class AssessmentOut(BaseModel):
+    hypothesis_id: str
     evidence_id: str
     verdict: Verdict
     rationale: str = Field(description="One sentence, shown in the UI.")
@@ -73,6 +74,9 @@ class CriticOut(BaseModel):
     better_explanation: str = Field(description="A competing explanation the evidence fits "
                                                 "better, or '' if none.")
     missing_evidence: list[str]
+    alternative_predictions: list[PredictedSignal] = Field(
+        description="If DISSENT: 1-3 checkable predictions of the better explanation. "
+                    "Empty if CONCUR.")
 
 
 class ClaimOut(BaseModel):
