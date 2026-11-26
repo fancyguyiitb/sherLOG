@@ -56,6 +56,11 @@ SYSTEM = (
 #: Incident window length. The baseline is the same length, ending 30s before the window.
 WINDOW = timedelta(minutes=3)
 MAX_WINDOW = timedelta(minutes=8)
+#: After detection, wait this long before reading evidence, and extend the window over it.
+#: Alerts fire on the first damage — often the restart blip of a config change — while
+#: rate() windows over the fault's actual mechanism are still filling. The on-call analogue
+#: is letting the graphs catch up before reading them. Costs one minute of MTTR.
+SETTLE = timedelta(seconds=60)
 ONSET_LEAD = timedelta(seconds=60)
 
 DEFAULT_FLAGS = {"signal_checks": True, "critic": True, "docs": True}
@@ -74,7 +79,7 @@ class Run:
         # The window runs from shortly before the estimated onset to detection, at least
         # WINDOW long; the equal-length baseline sits just before it. Rounded to 10s so
         # evidence IDs are stable.
-        detected = datetime.fromisoformat(incident["detected_at"])
+        detected = datetime.fromisoformat(incident["detected_at"]) + SETTLE
         onset = datetime.fromisoformat(incident.get("onset_at") or incident["detected_at"])
         end = detected.replace(second=detected.second - detected.second % 10, microsecond=0)
         length = min(MAX_WINDOW, max(WINDOW, end - onset + ONSET_LEAD))
@@ -232,9 +237,10 @@ def hypothesize(run: Run, snapshot_ids: list[str]) -> None:
         "(absolute); "
         "log_stats present|absent|count_rises (for an event) or config_changed|commit_changed; "
         "runtime_state restarted; git_diff_since deploy_present; trace_search span_dominates. "
-        "The description must say exactly what the condition tests: to predict that something "
-        "does NOT change, use 'stable' (or 'absent' for a log event) — never 'rises' with a "
-        "description saying 'no increase'. "
+        "The description must say exactly what is predicted. To predict that something does "
+        "NOT happen (no deployment, no config change, no restart, no dominant span), use the "
+        "positive condition with negate=true; for 'a metric does not move' use 'stable'. "
+        "Never write a description saying 'no X' on a condition that tests for X. "
         "Use PromQL that returns a value per series, e.g. "
         "histogram_quantile(0.99, sum by (le) (rate(...[1m]))) or rate(x[1m]).\n"
         "Where changes show up: a CONFIGURATION change (environment / settings) restarts the "
@@ -471,6 +477,10 @@ def investigate(incident: dict[str, Any], llm: LLMClient, *,
     run = Run(incident, llm, flags=flags, label=label)
     run.log("stage", f"investigation opened for {incident['id']}; window "
                      f"{run.window.start:%H:%M:%S}-{run.window.end:%H:%M:%S}Z")
+    wait = (run.window.end - datetime.now(timezone.utc)).total_seconds() + 15  # + scrape lag
+    if wait > 0:
+        run.log("stage", f"settling {wait:.0f}s so rate() windows cover the window end")
+        time.sleep(wait)
     budget_hit = provider_down = False
     try:
         snapshot = triage(run)

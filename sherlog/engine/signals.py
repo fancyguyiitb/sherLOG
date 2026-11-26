@@ -63,6 +63,9 @@ class PredictedSignal(BaseModel):
     promql: str = Field(description="PromQL for metric_query checks, else ''.")
     event: str = Field(description="Log event name for present/absent/count_rises, else ''.")
     span: str = Field(description="Span name for span_dominates (e.g. db.acquire), else ''.")
+    negate: bool = Field(description="true to predict the condition does NOT hold, e.g. "
+                                     "'no deployment to orders-svc' = git_diff_since "
+                                     "deploy_present with negate=true.")
     threshold: float = Field(description="above/below: absolute value; rises/falls: ratio vs "
                                          "baseline (0 = default 1.5x / 0.67x); stable: max "
                                          "ratio either way (0 = default 1.5x); "
@@ -166,6 +169,15 @@ def _metric(sig: PredictedSignal, series: list[dict[str, Any]]) -> CheckOutcome:
 
 
 def evaluate(sig: PredictedSignal, result: ToolResult) -> CheckOutcome:
+    """Evaluate a prediction. ``negate`` inverts present/absent; no data stays no data —
+    an evidence gap says nothing either way."""
+    out = _evaluate(sig, result)
+    if sig.negate and out.present is not None:
+        return CheckOutcome(not out.present, f"NOT expected: {out.observed}")
+    return out
+
+
+def _evaluate(sig: PredictedSignal, result: ToolResult) -> CheckOutcome:
     f = result.facts
     if result.no_data:
         return CheckOutcome(None, "no data returned — evidence gap")

@@ -21,7 +21,7 @@ T0 = datetime(2026, 11, 26, 12, 0, tzinfo=timezone.utc)
 
 def sig(**kw) -> PredictedSignal:
     base = dict(description="d", tool="metric_query", condition="rises", service="",
-                promql="x", event="", span="", threshold=0.0)
+                promql="x", event="", span="", threshold=0.0, negate=False)
     return PredictedSignal(**{**base, **kw})
 
 
@@ -136,3 +136,11 @@ def test_stable_condition_for_predicting_no_change():
     assert evaluate(s, result(series(2.1, 2))).present is True
     assert evaluate(s, result(series(9, 2))).present is False
     assert evaluate(s, result(series(5, 0))).present is False
+
+
+def test_negated_prediction_inverts_but_never_invents_data():
+    s = sig(tool="git_diff_since", condition="deploy_present", service="orders-svc", negate=True)
+    assert evaluate(s, result({"deploys": []})).present is True        # predicted: no deploy
+    assert evaluate(s, result({"deploys": [{"service": "orders-svc", "sha": "a", "at": "t"}]})).present is False
+    gap = sig(condition="rises", negate=True)
+    assert evaluate(gap, result({"series": []}, no_data=True)).present is None
