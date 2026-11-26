@@ -123,8 +123,12 @@ def main() -> None:
             print(f"[{i}/{len(todo)}] {k}: waiting for a clean baseline", flush=True)
             try:
                 line = run_one(k, r, catalog, llm, flags, reset_at)
-                if (line["score"].get("error") or "").startswith("all rungs failed"):
-                    raise RuntimeError(f"provider unavailable: {line['score']['error']}")
+                err = line["score"].get("error") or ""
+                # A run that ended on anything but the budget governor did not finish its
+                # reasoning: an unreachable provider, a tool or persistence failure. That is
+                # a result about the harness, not the engine (SCORING.md section 5).
+                if err and not err.startswith("budget exhausted"):
+                    raise RuntimeError(f"infrastructure error, run not scored: {err}")
                 with RESULTS.open("a", encoding="utf-8") as fh:
                     fh.write(json.dumps(line, default=str) + "\n")
             except Exception as exc:  # not a result about the engine: logged, retried

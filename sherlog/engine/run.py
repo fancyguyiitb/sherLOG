@@ -132,11 +132,23 @@ class Run:
         self.log("stage", f"stage -> {to}")
 
     def save(self) -> None:
+        """Persist the run. On Windows an atomic rename fails while any reader (the UI)
+        holds the target open, so the rename is retried; persistence is bookkeeping and a
+        failure to write a snapshot must never end an investigation."""
         SETTINGS.investigations_dir.mkdir(parents=True, exist_ok=True)
         path = SETTINGS.investigations_dir / f"{self.id}.json"
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.to_dict(), default=str, indent=1), encoding="utf-8")
-        tmp.replace(path)
+        try:
+            tmp.write_text(json.dumps(self.to_dict(), default=str, indent=1), encoding="utf-8")
+        except OSError:
+            return
+        for _ in range(40):
+            try:
+                tmp.replace(path)
+                return
+            except PermissionError:
+                time.sleep(0.05)
+        # Still locked after 2s: the next save() will catch up. Never raise from here.
 
     def to_dict(self) -> dict[str, Any]:
         d = self.inv.decision
