@@ -21,6 +21,7 @@ from fastapi import FastAPI, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from . import events as ev
+from . import tracing
 from .config import Settings
 from .logging import Logger, current_context, set_context
 from .metrics import observe_request
@@ -33,13 +34,16 @@ def create_app(settings: Settings, logger: Logger) -> FastAPI:
     app = FastAPI(title=settings.service, version=settings.commit_sha)
     app.state.settings = settings
     app.state.log = logger
+    tracing.setup(settings.service, settings.otlp_endpoint)
 
     @app.middleware("http")
     async def instrument(request: Request, call_next: Callable) -> Response:
-        # Accept an inbound trace ID so a checkout is one trace across all five services;
-        # mint one at the edge when the caller did not supply it.
-        trace_id = request.headers.get(TRACE_HEADER) or uuid.uuid4().hex
-        span_id = uuid.uuid4().hex[:16]
+        # The OTel server span is already active here (FastAPIInstrumentor wraps the whole
+        # middleware stack), so log lines carry the same trace ID Tempo indexes. Upstream
+        # context arrives as W3C traceparent, injected by the httpx instrumentation.
+        trace_id, span_id = tracing.current_ids()
+        if not trace_id:
+            trace_id, span_id = uuid.uuid4().hex, uuid.uuid4().hex[:16]
         cohort = request.headers.get(COHORT_HEADER, "")
         route = f"{request.method} {request.url.path}"
 
@@ -56,6 +60,11 @@ def create_app(settings: Settings, logger: Logger) -> FastAPI:
             raise
         finally:
             elapsed = time.perf_counter() - started
+            # Label by route TEMPLATE ("/orders/{order_id}"), never the raw path: one
+            # series per order id is the classic way to take down a Prometheus.
+            matched = request.scope.get("route")
+            route = f"{request.method} {getattr(matched, 'path', request.url.path)}"
+            set_context(trace_id=trace_id, span_id=span_id, route=route, cohort=cohort)
             # /metrics and /healthz are scraper traffic. Counting them would dilute every
             # SLI with requests no user ever made — the availability ratio would read
             # healthy through an outage purely on the strength of the scrape volume.
@@ -78,6 +87,8 @@ def create_app(settings: Settings, logger: Logger) -> FastAPI:
 
     @app.get("/metrics")
     async def metrics() -> Response:
+        if not tracing.telemetry_enabled():
+            return Response(status_code=404)
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.on_event("startup")
@@ -88,6 +99,9 @@ def create_app(settings: Settings, logger: Logger) -> FastAPI:
             **{k: v for k, v in settings.as_dict().items() if k != "service"},
         )
 
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="/metrics,/healthz")
     return app
 
 
@@ -100,8 +114,6 @@ def propagate() -> dict[str, str]:
     """
     ctx = current_context()
     headers: dict[str, str] = {}
-    if ctx["trace_id"]:
-        headers[TRACE_HEADER] = ctx["trace_id"]
     if ctx["cohort"]:
         headers[COHORT_HEADER] = ctx["cohort"]
     return headers

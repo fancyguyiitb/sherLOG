@@ -30,7 +30,18 @@ CREATE TABLE catalog (
     name        TEXT    NOT NULL,
     -- Nullable on purpose. F-06's crafted row has a NULL price here, and the worker's
     -- handler raises on it. A real defect reachable from real data beats a fault flag.
-    price_cents INTEGER
+    price_cents INTEGER,
+    -- Rich product content (~60 KB per SKU). Cached in Redis alongside the price, so the
+    -- cache's working set (~12 MB) fits comfortably in 256 MB and not at all in F-02's 8 MB.
+    description TEXT
+);
+
+-- Observed prices. An item's selling price is the 30-day median of these — an aggregate
+-- over thousands of rows per SKU, which is exactly why orders-svc caches it.
+CREATE TABLE price_history (
+    sku         TEXT        NOT NULL,
+    price_cents INTEGER     NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE inventory (

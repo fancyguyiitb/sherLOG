@@ -108,17 +108,71 @@ cause wrong — and the catalog records that specific wrong answer in advance, a
 
 ## Running it
 
+Prerequisites: Docker Desktop (8 GB), Python 3.12+, and a `.env` at the repo root with
+`OPENAI_API_KEY` and `LANGSMITH_API_KEY`.
+
 ```bash
-make up                  # target system + observability + continuous load
-make test                # the deterministic suite — no LLM calls, no cost
-make catalog             # list the fault catalog
-make inject F=F-04       # inject a fault and its declared decoys
-make surprise            # inject a random fault without printing which one
+make venv                # .venv with the engine, injector, eval and UI
+make up                  # builds the deploy repo, starts target system + observability + load
+make test                # the deterministic suite: no LLM calls, no cost
+make ui                  # glass-box UI on http://localhost:8080 (fault console, live ledger, eval)
+make detect              # the autonomy loop: burn-rate detector -> incident -> investigation
+make inject F=F-04       # or use the UI's fault console
+make reset               # revert every fault to the clean baseline
+make eval                # the 39-run matrix (6 faults x 3 reps x 2 decoy modes + 3x F-07)
 ```
 
-The whole stack runs in Docker Compose on one free-tier ARM box. **Cost: $0** for
-everything except model calls, which are capped at $0.60 per investigation by a governor
-enforced in code.
+Model calls go to `gpt-4.1-mini-2025-04-14` (triage, gather, assess) and
+`gpt-4.1-2025-04-14` (hypothesize, verify, critic, report), pinned to dated snapshots.
+Every investigation is traced to LangSmith (project `sherlog`) as one nested trace:
+stage -> model call / tool call.
+
+---
+
+## How an investigation actually runs
+
+1. **Detect.** `sherlog/detect/service.py` polls the SLO recording rules every 15s and
+   evaluates multi-window burn rates (fast: 5m and 30s windows above 14.4x; slow: 30m and
+   3m above 6x). Alerts are correlated into one incident. No human starts anything.
+2. **Triage** (`fast`). Seven fixed snapshot queries, the same every time, so triage cannot
+   be steered by what it chose to fetch. The model only classifies.
+3. **Hypothesize** (`reasoning`). 3-5 competing hypotheses, each registering 2-4
+   **checkable predictions** (tool + arguments + condition from a fixed vocabulary) *before*
+   any evidence for it is gathered. Uncheckable predictions are rejected by code.
+4. **Gather.** Per hypothesis, in isolation: code runs each prediction's query and
+   evaluates its condition: **present**, **absent** (costs the hypothesis -2.0 nats, applied
+   mechanically), or **no data** (an evidence gap, deliberately *not* an absence). A
+   `fast` subagent that sees only that hypothesis may then request up to three more queries.
+5. **Verify** (`fast`). Every (hypothesis, evidence) pair gets a discrete label, judged
+   against the competing hypotheses so shared symptoms count as neutral. Code maps labels to
+   fixed log-likelihood ratios, applies dedup and the per-evidence-kind cap, and computes
+   posteriors. No model ever emits a probability.
+6. **Critic** (`reasoning`, fresh context). Argues the leading conclusion is wrong. A
+   dissent caps confidence.
+7. **Report** (`balanced`). Causal-chain claims, each citing evidence IDs. Code extracts
+   every number, service and commit SHA from each claim and checks that they appear in the
+   cited evidence, inside its window. Failing claims are stripped and counted.
+8. **Outcome gate** (code). `CONFIRMED` / `LIKELY` / `PARTIALLY_VERIFIED` /
+   `INSUFFICIENT_EVIDENCE` from posterior, margin, critic and verification. Abstention is a
+   success state.
+
+---
+
+## v1 build: where it departs from the plan
+
+Recorded so the docs never claim more than the code does.
+
+| Plan | v1 | Why |
+|---|---|---|
+| Agent spans to a second Tempo; LangSmith optional | LangSmith is the agent tracer; `tempo-sherlog` removed | See V1_SCOPE §D.6 |
+| Hybrid BM25 + pgvector doc retrieval | BM25 over `docs/runbooks/` | Embeddings add cost and moving parts without changing the mechanism |
+| Continuous Drain3 job with 7-day novelty | Drain3 at query time; novelty = absent from the equal-length baseline window just before onset | The stack is hours old, not weeks; a 24h-prior baseline does not exist yet |
+| LLM judge for RCA accuracy and causal-chain F1 | RCA accuracy scored by code (`eval/score.py`); chain F1 deferred | Dated revision in docs/SCORING.md |
+| `frozen` / `replay` modes | `live` only | Deferred; the deterministic layers are unit-tested instead |
+| Fault commits on the project repo | A separate deploy repo (`runtime/deploy-repo`) of comment-stripped code | Source comments name the faults; a diff hunk touching them would leak the answer |
+| F-07: stop log shipping only | Full telemetry blackout of payments-svc (logs, traces, `/metrics`) + latency toxic | With only logs stopped, payments-svc's own metrics still name the cause, so abstaining would be wrong |
+| F-03: pool 20 -> 3 | pool 20 -> 1 | At ~13 rps a pool of 3 never saturates (measured) |
+| Latency SLO: under 1200 ms | under 400 ms (2x the healthy p99 of ~200 ms) | At 1.2s the cache and N+1 faults breach nothing |
 
 ---
 

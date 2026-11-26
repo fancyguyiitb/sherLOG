@@ -45,30 +45,30 @@ groups:
   - name: sli_latency
     interval: 15s
     rules:
-      # Fraction of /checkout requests served under 1200ms, read straight off the histogram
+      # Fraction of /checkout requests served under 400ms (2x the healthy p99 of ~200ms), read straight off the histogram
       # bucket rather than via histogram_quantile. Ratio-of-buckets is the correct shape for
       # an SLI: it is a proportion of good events, which is what a burn rate consumes.
       - record: sli:latency:ratio_rate30s
         expr: |
-          sum(rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="1.2"}[30s]))
+          sum(rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="0.4"}[30s]))
           /
           sum(rate(http_request_duration_seconds_count{service="gateway",route="POST /checkout"}[30s]))
 
       - record: sli:latency:ratio_rate5m
         expr: |
-          sum(rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="1.2"}[5m]))
+          sum(rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="0.4"}[5m]))
           /
           sum(rate(http_request_duration_seconds_count{service="gateway",route="POST /checkout"}[5m]))
 
       - record: sli:latency:ratio_rate3m
         expr: |
-          sum(rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="1.2"}[3m]))
+          sum(rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="0.4"}[3m]))
           /
           sum(rate(http_request_duration_seconds_count{service="gateway",route="POST /checkout"}[3m]))
 
       - record: sli:latency:ratio_rate30m
         expr: |
-          sum(rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="1.2"}[30m]))
+          sum(rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="0.4"}[30m]))
           /
           sum(rate(http_request_duration_seconds_count{service="gateway",route="POST /checkout"}[30m]))
 
@@ -78,26 +78,30 @@ groups:
       # hinge on one remembered label name.
       - record: sli:latency:ratio_rate5m:by_cohort
         expr: |
-          sum by (cohort) (rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="1.2"}[5m]))
+          sum by (cohort) (rate(http_request_duration_seconds_bucket{service="gateway",route="POST /checkout",le="0.4"}[5m]))
           /
           sum by (cohort) (rate(http_request_duration_seconds_count{service="gateway",route="POST /checkout"}[5m]))
 
   - name: sli_freshness
     interval: 15s
     rules:
-      # Fraction of orders reaching COMPLETE within 60s. The only SLI F-06 breaches, and
-      # the reason F-06 is in the catalog at all.
+      # Orders reaching COMPLETE within 60s, over orders created. The only SLI F-06
+      # breaches. Denominator is orders *created* (orders-svc), not orders completed: a
+      # stalled worker completes nothing, and a completed-only ratio would go to 0/0 —
+      # no data, no alert — at exactly the moment it should fire.
       - record: sli:freshness:ratio_rate5m
         expr: |
-          sum(rate(order_completion_seconds_bucket{le="60"}[5m]))
-          /
-          sum(rate(order_completion_seconds_count[5m]))
+          clamp_max(
+            (sum(rate(order_completion_seconds_bucket{le="60.0"}[5m])) or vector(0))
+            /
+            sum(rate(orders_created_total[5m])), 1)
 
       - record: sli:freshness:ratio_rate30s
         expr: |
-          sum(rate(order_completion_seconds_bucket{le="60"}[30s]))
-          /
-          sum(rate(order_completion_seconds_count[30s]))
+          clamp_max(
+            (sum(rate(order_completion_seconds_bucket{le="60.0"}[1m])) or vector(0))
+            /
+            sum(rate(orders_created_total[1m])), 1)
 
   - name: discriminators
     interval: 15s
@@ -105,7 +109,7 @@ groups:
       # F-01 vs F-02. Both collapse the hit rate; only F-02 evicts.
       - record: discriminator:cache_miss_rate
         expr: |
-          sum(rate(cache_ops_total{result="miss"}[2m]))
+          (sum(rate(cache_ops_total{result="miss"}[2m])) or vector(0))
           /
           sum(rate(cache_ops_total[2m]))
 

@@ -108,16 +108,25 @@ def update_posteriors(
     hypotheses: list[Hypothesis],
     assessments: list[Assessment],
     signal_checks: list[SignalCheck] | None = None,
+    *,
+    residual: bool = False,
 ) -> list[Hypothesis]:
     """Recompute every posterior from scratch and normalise across open hypotheses.
 
     Recomputing rather than incrementally updating means the ledger is a pure function of
     its assessments, so a run is replayable from the database with no hidden state.
+
+    ``residual=True`` adds an implicit "none of the above" hypothesis to the normaliser,
+    with the same prior and no evidence weight. Without it, normalisation manufactures
+    confidence: if every candidate fails its predictions, the least-badly-refuted one is
+    renormalised up to a high posterior. With it, a ledger of refuted hypotheses leaves the
+    mass on "something we did not think of", the leader's posterior stays low, and the
+    outcome gate abstains — which is the honest answer.
     """
     if not hypotheses:
         return []
 
-    n = len(hypotheses)
+    n = len(hypotheses) + (1 if residual else 0)
     prior_logit = _logit(1.0 / n)
 
     raw: list[float] = []
@@ -125,7 +134,7 @@ def update_posteriors(
         weight = accumulate_weight(h.id, assessments, signal_checks)
         raw.append(_sigmoid(prior_logit + weight))
 
-    total = sum(raw)
+    total = sum(raw) + (_sigmoid(prior_logit) if residual else 0.0)
     for h, p in zip(hypotheses, raw):
         h.posterior = (p / total) if total > 0 else 1.0 / n
         h.status = _status_for(h.posterior, h.status)

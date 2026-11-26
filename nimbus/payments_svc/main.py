@@ -89,6 +89,16 @@ async def create_payment(req: PaymentRequest) -> dict[str, object]:
     return payment
 
 
+@app.on_event("startup")
+async def _log_client_config() -> None:
+    # A deliberately leaky startup line, of the kind real services emit: it prints the
+    # provider credential. The value is sherLOG's canary secret. The redaction gate must
+    # remove it before any model or tracer sees it, and the LLM client refuses to send a
+    # payload that still contains it.
+    log.info(ev.CONFIG_LOADED, "psp client configured", psp_base_url=PSP_BASE_URL,
+             psp_api_key=os.environ.get("PSP_API_KEY", ""))
+
+
 @app.on_event("shutdown")
 async def _shutdown() -> None:
     await psp.aclose()

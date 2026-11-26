@@ -12,23 +12,35 @@ name: nimbus
 
 x-service-defaults: &service-defaults
   restart: unless-stopped
-  environment: &common-env
-    COMMIT_SHA: ${COMMIT_SHA:-dev}
-    ENVIRONMENT: local
-    LOG_LEVEL: INFO
+  # Code comes from the deploy repo, not the image: a deploy is a real commit there plus a
+  # container recreate. `python -m faults.injector.cli reset` (re)builds that repo.
+  volumes:
+    - ./runtime/deploy-repo/nimbus:/app/nimbus:ro
   logging:
     driver: json-file
     options: {max-size: "50m", max-file: "3"}
 
+x-common-env: &common-env
+  COMMIT_SHA: ${COMMIT_SHA:-dev}
+  ENVIRONMENT: local
+  LOG_LEVEL: INFO
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+
 services:
   # ---------------------------------------------------------------- Plane 1: target system
+  #
+  # Each service also reads runtime/env/<service>.env. That file is the config_patch (M1)
+  # injection surface: the injector rewrites it and force-recreates the container — a real
+  # restart with a real config-hash change, visible in runtime_state().
 
   gateway:
     <<: *service-defaults
     build: {context: ., dockerfile: nimbus/Dockerfile, args: {SERVICE: gateway}}
     ports: ["8000:8000"]
+    env_file: [{path: ./runtime/env/gateway.env, required: false}]
     environment:
       <<: *common-env
+      PORT: "8000"
       UPSTREAM_TIMEOUT_S: "5.0"
       UPSTREAM_RETRIES: "1"
     depends_on: [orders-svc]
@@ -36,38 +48,48 @@ services:
   orders-svc:
     <<: *service-defaults
     build: {context: ., dockerfile: nimbus/Dockerfile, args: {SERVICE: orders_svc}}
-    # These four are the F-01 and F-03 injection points. The injector rewrites this env,
-    # then runs `docker compose up -d --force-recreate orders-svc` — a real restart with a
-    # real config-hash change, visible in runtime_state().
+    # CATALOG_CACHE_TTL_S (F-01) and DB_POOL_MAX (F-03) are overridden via the env file.
+    env_file: [{path: ./runtime/env/orders-svc.env, required: false}]
     environment:
       <<: *common-env
+      PORT: "8001"
       DATABASE_URL: postgresql://nimbus:nimbus@postgres:5432/nimbus
-      REDIS_URL: redis://redis:6379/0
-      CATALOG_CACHE_TTL_S: "300"    # F-01 sets this to 0
-      DB_POOL_MAX: "20"             # F-03 sets this to 3
-      DB_ACQUIRE_TIMEOUT_S: "3.0"
+      # Through toxiproxy so D-1 (mild Redis latency decoy) is a real network toxic.
+      REDIS_URL: redis://toxiproxy:8667/0
+      UPSTREAM_RETRIES: "0"
     depends_on: [postgres, redis, payments-svc]
 
   payments-svc:
     <<: *service-defaults
     build: {context: ., dockerfile: nimbus/Dockerfile, args: {SERVICE: payments_svc}}
+    env_file: [{path: ./runtime/env/payments-svc.env, required: false}]
     environment:
       <<: *common-env
+      PORT: "8002"
+      UPSTREAM_RETRIES: "0"
       # Through the chaos proxy, never straight at psp-stub. This indirection is what makes
       # F-04 a real network fault rather than a sleep in our own code.
       PSP_BASE_URL: http://toxiproxy:8666
+      # The canary secret (sherlog.redaction.CANARY_SECRET). It surfaces in a startup log
+      # line; it must never reach a model payload.
+      PSP_API_KEY: AKIACANARYDONOTLEAK7
     depends_on: [toxiproxy]
 
   psp-stub:
     <<: *service-defaults
     build: {context: ., dockerfile: nimbus/Dockerfile, args: {SERVICE: psp_stub}}
+    environment:
+      <<: *common-env
+      PORT: "8003"
 
   worker:
     <<: *service-defaults
     build: {context: ., dockerfile: nimbus/Dockerfile, args: {SERVICE: worker}}
     command: ["python", "-m", "nimbus.worker.main"]
+    env_file: [{path: ./runtime/env/worker.env, required: false}]
     environment:
       <<: *common-env
+      PORT: "8004"     # /metrics only
       DATABASE_URL: postgresql://nimbus:nimbus@postgres:5432/nimbus
       JOB_MAX_ATTEMPTS: "5"
     depends_on: [postgres]
@@ -89,8 +111,9 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    # F-02 rewrites maxmemory to 8mb and restarts this container.
-    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    # F-02 sets REDIS_MAXMEMORY=8mb in runtime/env/redis.env and recreates this container.
+    env_file: [{path: ./runtime/env/redis.env, required: false}]
+    command: ["sh", "-c", "exec redis-server --maxmemory $${REDIS_MAXMEMORY:-256mb} --maxmemory-policy allkeys-lru --save \"\""]
 
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.9.0
@@ -140,20 +163,6 @@ services:
       - tempodata:/var/tempo
     ports: ["3200:3200", "4317:4317"]
 
-  # sherLOG's OWN traces go here, never to the Tempo above.
-  #
-  # If the engine's spans landed in the Tempo it queries as evidence, it could retrieve its
-  # own reasoning as "evidence" about the target system — and the injector's spans could leak
-  # ground truth by the same path. trace_search() also hard-filters
-  # service.namespace != "sherlog" as a second layer.
-  tempo-sherlog:
-    image: grafana/tempo:2.6.0
-    restart: unless-stopped
-    command: ["-config.file=/etc/tempo/tempo.yml"]
-    volumes:
-      - ./ops/tempo/tempo-sherlog.yml:/etc/tempo/tempo.yml:ro
-      - tempodata_sherlog:/var/tempo
-
   redis-exporter:
     image: oliver006/redis_exporter:v1.62.0
     restart: unless-stopped
@@ -166,16 +175,6 @@ services:
     environment:
       DATA_SOURCE_NAME: "postgresql://nimbus:nimbus@postgres:5432/nimbus?sslmode=disable"
     depends_on: [postgres]
-
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
-    restart: unless-stopped
-    privileged: true
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
 
   grafana:
     image: grafana/grafana:11.2.0
@@ -204,4 +203,3 @@ volumes:
   promdata:
   lokidata:
   tempodata:
-  tempodata_sherlog:

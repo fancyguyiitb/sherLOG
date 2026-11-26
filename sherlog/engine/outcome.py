@@ -42,6 +42,7 @@ def decide(
     unverified_claims: int,
     budget_exhausted: bool = False,
     provider_unavailable: bool = False,
+    verified_claims: int | None = None,
 ) -> Decision:
     """Map ledger state onto one of four outcomes.
 
@@ -70,21 +71,28 @@ def decide(
 
     confidence = top.posterior
 
+    if verified_claims == 0:
+        # Every claim in the report failed citation verification: there is no grounded
+        # statement left to make, whatever the posterior says.
+        return Decision("INSUFFICIENT_EVIDENCE", confidence, "no_verified_claims", top.id, m)
+
+    if confidence >= CONFIRM_POSTERIOR and m >= CONFIRM_MARGIN and critic_concurs:
+        base: Decision = Decision("CONFIRMED", confidence, "confirmed", top.id, m)
+    elif confidence >= LIKELY_POSTERIOR:
+        capped = min(confidence, CRITIC_DISSENT_CAP) if not critic_concurs else confidence
+        reason = "critic_dissent" if not critic_concurs else "below_confirm_threshold"
+        base = Decision("LIKELY", capped, reason, top.id, m)
+    else:
+        return Decision("INSUFFICIENT_EVIDENCE", confidence, "low_confidence", top.id, m)
+
+    # Stripped claims downgrade a conclusion; they never manufacture one. An abstention
+    # with a failed claim in its partial findings is still an abstention.
     if unverified_claims > 0:
         return Decision(
             "PARTIALLY_VERIFIED",
-            min(confidence, PARTIAL_CONFIDENCE_CAP),
+            min(base.confidence, PARTIAL_CONFIDENCE_CAP),
             f"{unverified_claims} claim(s) failed citation verification",
             top.id,
             m,
         )
-
-    if confidence >= CONFIRM_POSTERIOR and m >= CONFIRM_MARGIN and critic_concurs:
-        return Decision("CONFIRMED", confidence, "confirmed", top.id, m)
-
-    if confidence >= LIKELY_POSTERIOR:
-        capped = min(confidence, CRITIC_DISSENT_CAP) if not critic_concurs else confidence
-        reason = "critic_dissent" if not critic_concurs else "below_confirm_threshold"
-        return Decision("LIKELY", capped, reason, top.id, m)
-
-    return Decision("INSUFFICIENT_EVIDENCE", confidence, "low_confidence", top.id, m)
+    return base

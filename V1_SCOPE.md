@@ -377,7 +377,7 @@ Three SLIs, deliberately chosen so that **each fault breaches a different one**:
 | SLO              | SLI definition                                                                                                                                                  | Target | Breached by      |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
 | **Availability** | `sum(rate(http_requests_total{service="gateway",route="/checkout",status!~"5.."}[w])) / sum(rate(http_requests_total{service="gateway",route="/checkout"}[w]))` | 99.0%  | F-03, F-04       |
-| **Latency**      | fraction of `/checkout` requests under 1200 ms, from the histogram                                                                                              | 99.0%  | F-01, F-02, F-05 |
+| **Latency**      | fraction of `/checkout` requests under 400 ms (2x healthy p99), from the histogram                                                                                             | 99.0%  | F-01, F-02, F-05 |
 | **Freshness**    | fraction of orders reaching `COMPLETE` within 60 s                                                                                                              | 99.0%  | **F-06 only**    |
 
 
@@ -466,9 +466,9 @@ on orchestration fighting to extract the ledger, and we would still not own the 
 | Schemas everywhere | `pydantic` v2 — one model per stage in/out, reused as the OpenAI schema |
 | Log templating | `drain3` |
 | Retries / backoff | `tenacity` |
-| Embeddings + vector store | `pgvector` in the Postgres we already run |
+| Doc retrieval | BM25 over the runbook corpus (v1; embeddings deferred) |
 | Lexical retrieval | Postgres `tsvector` full-text search — **not** Elasticsearch |
-| Agent self-tracing | `opentelemetry-sdk` (see D.6) |
+| Agent self-tracing | `langsmith` (see D.6) |
 | Eval orchestration | plain `pytest` + a runner script |
 
 > **Generalisation seam:** all model access goes through one `LLMClient` protocol with a single
@@ -645,7 +645,7 @@ instead of coin-flipping. Abstention there is the *correct* behaviour, and it is
 because confidence is computed rather than asserted.
 
 **Budget governor** (hard caps, enforced in code, checked before every model call):
-250 k total tokens · 40 tool calls · 8 min wall clock · $0.60 per investigation. Breaching any one
+250 k total tokens · 60 tool calls (v1; was 40, below the 43-call worst case) · 8 min wall clock · $0.60 per investigation. Breaching any one
 exits through the `budget` branch above with partial findings attached — never a guess.
 
 ### D.5 Determinism, caching, and replay
@@ -667,36 +667,34 @@ exits through the `budget` branch above with partial findings attached — never
 redaction gate, the detectors, and the outcome gate on every push without spending a cent. Those
 components are most of the thesis, and they are all deterministic — they deserve real test coverage.
 
-### D.6 Observing the agent itself (and the LangSmith question)
+### D.6 Observing the agent itself: LangSmith
 
-**Primary: our own stack.** The engine is instrumented with OpenTelemetry — one span per stage,
-per tool call, per model call — exported to Tempo, plus a Postgres run ledger:
+> **Revised 2026-11-26 (v1 build).** The original plan made LangSmith optional and sent the
+> agent's own spans to a second Tempo. v1 does the reverse, for the reasons below.
 
-```
-investigations(id, incident_id, started_at, ended_at, outcome, confidence, degraded, mode)
-stages(investigation_id, stage, model_id, started_at, ended_at, tokens_in, tokens_out, cost_usd, truncated)
-llm_calls(id, stage_id, prompt_hash, response_hash, latency_ms, cached)
-hypotheses(...)  assessments(...)  claims(...)  verdicts(...)
-```
+**LangSmith is the agent tracer.** Every investigation is one nested LangSmith trace:
+`investigation` -> `stage:triage | hypothesize | gather | verify | critic | report` -> each
+model call (via `langsmith.wrappers.wrap_openai`) and each evidence-tool call (`@traceable`).
+It is enabled whenever `LANGSMITH_API_KEY` is set (project `sherlog`).
 
-The ledger is not debug output — it is what the frontend renders (§13) and what the eval harness
-scores. It has to exist regardless, which is most of why an external tracing product is optional.
+Why this is safe and why it replaces the second Tempo:
 
-> ⚠ **Real hazard, easy to miss:** the agent's own traces must never land where the agent can read
-> them. If sherLOG's spans go to the same Tempo it queries as evidence, it can retrieve its own
-> reasoning as "evidence" about the target system — and the injector's spans could leak ground
-> truth by the same path. Mitigation: a **separate Tempo instance for sherLOG's own telemetry**,
-> and the `trace_search` tool hard-filters `service.namespace != "sherlog"` as a belt-and-braces
-> second layer. Add an isolation test alongside the ground-truth one in §B.7.
+- **It cannot leak into evidence.** LangSmith is outside the monitored system. The original
+  hazard, the agent retrieving its own reasoning as "evidence" from the Tempo it queries,
+  disappears when the agent's traces never enter that Tempo at all. `tempo-sherlog` is
+  removed.
+- **It sees nothing the model does not.** Only `RedactedEvidence` can reach a prompt (a
+  type boundary in `LLMClient.complete`), so the tracer receives exactly the redacted
+  payload the model receives.
+- **It is not where the numbers come from.** Decoy resistance, strip-rate, abstention
+  correctness and accuracy against ground truth are computed by `eval/score.py` from the run
+  ledger. LangSmith is for seeing *why* a stage did what it did.
 
-**LangSmith: optional, dev-only, behind a flag — never a runtime dependency.** It is genuinely
-good at the thing we will actually struggle with, which is eyeballing why a prompt produced a bad
-hypothesis. Enable it locally while iterating on prompts. It does not become part of the product
-for three reasons: the metrics we report (decoy resistance, citation strip-rate, abstention
-correctness, per-fault-class accuracy against injected ground truth) are ones only our harness can
-compute; the free tier is trace-capped and our nightly matrix would eat it; and a hosted tracer
-receiving full prompt payloads cuts against the redaction story in §9. Verify the current free-tier
-limits before relying on it even in dev.
+**The run ledger is still ours.** Each investigation is persisted as one JSON document
+(`runtime/investigations/<id>.json`): hypotheses with their pre-registered predictions and
+the code's check results, every assessment, every evidence item (query, window, redacted
+content), the critic, the report, the citation-verification result, per-stage tokens and
+cost, and the outcome. The UI renders it and the eval scores it.
 
 ### D.7 The eval judge — and how to not fool ourselves with it
 

@@ -10,19 +10,19 @@ inject:
   mode: config_patch
   target: orders-svc
   change:
-    DB_POOL_MAX: 3                # from 20
+    DB_POOL_MAX: 1                # from 20
   revert:
     DB_POOL_MAX: 20
 
 ground_truth:
   root_cause: >-
-    The orders-svc Postgres connection pool was reduced to three connections by a
+    The orders-svc Postgres connection pool was reduced to a single connection by a
     configuration change, so concurrent checkout requests queue on pool acquisition until
     they time out and return 500s to the gateway.
   proximate_service: orders-svc
   originating_component: orders-svc
   causal_chain:
-    - "orders-svc DB_POOL_MAX changed from 20 to 3; config hash changes"
+    - "orders-svc DB_POOL_MAX changed from 20 to 1; config hash changes"
     - "concurrent checkouts exceed available connections"
     - "db_pool_waiters grows past 10; acquisition waits approach the 3s timeout"
     - "orders-svc returns 500 on acquisition timeout"
@@ -33,7 +33,7 @@ ground_truth:
 expected_signals:
   metrics:
     - 'db_pool_waiters{service="orders-svc"} > 10'
-    - "db_pool_size == 3 while db_pool_in_use == 3"
+    - "db_pool_size == 1 while db_pool_in_use == 1"
     - 'db_pool_acquire_seconds p99 approaching 3s'
     - 'upstream_duration_seconds{upstream="psp"} NORMAL'   # discriminator against F-04
   logs:

@@ -35,7 +35,7 @@ from typing import Any
 from . import events as ev
 from .config import Settings
 
-_LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
+_LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40, "OFF": 100}
 
 #: Per-request context, set by the middleware and read by every log call in that request.
 _trace_id: ContextVar[str] = ContextVar("trace_id", default="")
@@ -57,6 +57,11 @@ class Logger:
         self.settings = settings
         self.stream = stream or sys.stdout
         self.threshold = _LEVELS.get(settings.log_level.upper(), 20)
+        # TELEMETRY=off (the F-07 blind spot) silences this service's logs entirely.
+        import os
+
+        if os.environ.get("TELEMETRY", "on").lower() == "off":
+            self.threshold = _LEVELS["OFF"]
 
     def log(
         self,
@@ -83,8 +88,8 @@ class Logger:
             "service": self.settings.service,
             "commit_sha": self.settings.commit_sha,
             "config_hash": self.settings.config_hash,
-            "trace_id": _trace_id.get(),
-            "span_id": _span_id.get(),
+            "trace_id": _trace_id.get() or _otel_ids()[0],
+            "span_id": _span_id.get() or _otel_ids()[1],
             "event": event,
             "route": _route.get(),
             "cohort": _cohort.get(),
@@ -110,6 +115,12 @@ class Logger:
 
     def error(self, event: str, msg: str = "", **kw: Any) -> dict[str, Any] | None:
         return self.log("ERROR", event, msg, **kw)
+
+
+def _otel_ids() -> tuple[str, str]:
+    from .tracing import current_ids
+
+    return current_ids()
 
 
 def set_context(

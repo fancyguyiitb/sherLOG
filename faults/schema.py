@@ -34,8 +34,13 @@ class Injection(BaseModel):
     target: str
     change: dict[str, object] = Field(default_factory=dict)
     revert: dict[str, object] = Field(default_factory=dict)
-    patch_file: str | None = None  # git_commit mode only
+    patch_file: str | None = None  # code variant under faults/variants/ (git_commit, data)
     commit_message: str | None = None
+    also: list["Injection"] = Field(default_factory=list)
+    """Further injections applied as part of the same fault (F-07: config + toxic)."""
+
+
+Injection.model_rebuild()
 
 
 class GroundTruth(BaseModel):

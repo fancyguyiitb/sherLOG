@@ -25,7 +25,9 @@ class BudgetExhausted(RuntimeError):
 @dataclass
 class Budget:
     max_tokens: int = 250_000
-    max_tool_calls: int = 40
+    # 11 snapshot + 1 doc + up to 5 hypotheses x (4 checks + 3 follow-ups) = 47 worst case.
+    # The cap sits above that so a well-behaved run never ends on it; the $ cap stays primary.
+    max_tool_calls: int = 60
     max_wall_clock_s: float = 480.0
     max_cost_usd: float = 0.60
 

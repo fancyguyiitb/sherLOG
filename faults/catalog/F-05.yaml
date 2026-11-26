@@ -10,7 +10,7 @@ breaches_slo: latency
 inject:
   mode: git_commit
   target: orders-svc
-  patch_file: patches/F-05_item_enrichment_loop.patch
+  patch_file: variants/F-05.py
   commit_message: "perf: simplify item enrichment logic"
   change:
     replaces: "single joined catalog query"

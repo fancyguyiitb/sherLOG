@@ -2,39 +2,47 @@ id: F-07
 name: observability_blind_spot
 class: observability
 severity: medium
-breaches_slo: availability
+breaches_slo: latency
 
 # The abstention case. This is a SUCCESS STATE and it must be in the demo. It is the only
 # fault where a confident, well-argued answer is scored as a failure.
+# A telemetry blackout on payments-svc — no logs, no traces, no /metrics — plus a latency
+# toxic on its provider link. The ONLY remaining view of payments-svc is from the outside:
+# orders-svc's upstream timing shows payments-svc got slow. Nothing inside it is visible,
+# so nothing can establish why. (Stopping only log shipping would not do: payments-svc's
+# own psp-upstream histogram and its traces would still name the cause, and abstaining
+# would then be the wrong answer.)
 inject:
   mode: config_patch
-  target: alloy
+  target: payments-svc
   change:
-    stop_log_shipping_for: payments-svc
-    then_apply_toxic: {toxic: latency, latency_ms: 400}
+    TELEMETRY: "off"
   revert:
-    restart_log_shipping: payments-svc
-    remove_toxic: latency
+    TELEMETRY: "on"
+  also:
+    - mode: chaos
+      target: toxiproxy/payments_to_psp
+      change: {toxic: latency, latency_ms: 1000, jitter_ms: 100}
 
 ground_truth:
   root_cause: >-
-    Log shipping for payments-svc was stopped and a mild upstream latency toxic applied, so
-    metrics show payments-svc degrading while no logs or traces exist for the window to
-    establish why.
+    payments-svc stopped emitting all telemetry and its payment-provider link was slowed,
+    so orders-svc sees payments-svc calls degrade while no logs, traces or metrics from
+    payments-svc exist for the window to establish why.
   proximate_service: payments-svc
   originating_component: unknown
   causal_chain:
-    - "the Alloy log-shipping container for payments-svc is stopped"
-    - "a 400ms latency toxic is applied to the payments-to-psp link"
-    - "metrics show payments-svc request duration rising"
-    - "no logs and no traces exist for the window to explain the rise"
+    - "payments-svc telemetry export is switched off: no logs, traces or metrics"
+    - "a 1000ms latency toxic is applied to the payments-to-psp link"
+    - "orders-svc upstream timing shows payments-svc calls slowing"
+    - "no logs, traces or metrics from payments-svc exist to explain the rise"
   correct_fix_class: "restore log shipping, then re-investigate; alert on log ingestion rate per service"
   known_misdiagnosis: psp_latency_injection
 
 expected_signals:
   metrics:
-    - "payments-svc request duration elevated"
-    - "log ingestion rate for payments-svc drops to zero"
+    - 'upstream_duration_seconds{service="orders-svc",upstream="payments-svc"} elevated'
+    - 'up{instance="payments-svc"} == 0; no payments-svc log lines in the window'
   logs: []
   traces: []
 

@@ -10,9 +10,9 @@ inject:
   mode: config_patch
   target: redis
   change:
-    maxmemory: 8mb                # from 256mb
+    REDIS_MAXMEMORY: 8mb          # from 256mb
   revert:
-    maxmemory: 256mb
+    REDIS_MAXMEMORY: 256mb
 
 ground_truth:
   root_cause: >-

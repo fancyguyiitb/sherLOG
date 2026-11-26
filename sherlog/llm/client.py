@@ -138,3 +138,129 @@ class FrozenLLMClient:
             )
         parsed, usage = self.responses[key]
         return parsed, usage
+
+
+# ============================================================================== live client
+
+class StageFailed(RuntimeError):
+    """A stage could not produce schema-valid output after the re-ask."""
+
+
+class ProviderUnavailable(RuntimeError):
+    """Every rung of the fallback ladder failed."""
+
+
+class OpenAIClient:
+    """The one class that talks to a provider.
+
+    Fallback ladder, in order:
+      1. transient errors (429/5xx/timeout): exponential backoff with jitter, 3 attempts;
+      2. schema validation failure: one re-ask with the validation error appended;
+      3. persistent failure of the stage's model: drop one rung (reasoning -> balanced ->
+         fast) and mark the run ``degraded`` — degraded runs are excluded from headline
+         accuracy, because a silent fallback is a different experiment;
+      4. every rung failed: ``ProviderUnavailable``, which the outcome gate turns into
+         INSUFFICIENT_EVIDENCE(provider_unavailable).
+
+    Every call is traced to LangSmith (when a key is configured) via ``wrap_openai``; the
+    stage functions add parent runs with ``@traceable``, so a whole investigation is one
+    nested trace: stage -> model call / tool call. Only redacted evidence ever reaches the
+    payload, so the tracer sees exactly what the model sees and nothing more.
+    """
+
+    LADDER: dict[Role, tuple[Role, ...]] = {
+        "reasoning": ("reasoning", "balanced", "fast"),
+        "balanced": ("balanced", "fast"),
+        "fast": ("fast",),
+    }
+
+    def __init__(self) -> None:
+        import warnings
+
+        import openai
+        from langsmith.wrappers import wrap_openai
+
+        warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
+
+        from ..config import PRICES, SETTINGS
+
+        self._openai = openai
+        self._client = wrap_openai(openai.OpenAI(max_retries=0, timeout=90.0))
+        self._models = SETTINGS.models
+        self._prices = PRICES
+        self._seed = SETTINGS.seed
+        self.degraded = False
+
+    def _cost(self, model: str, tin: int, tout: int) -> float:
+        pin, pout = self._prices.get(model, (2.0, 8.0))
+        return (tin * pin + tout * pout) / 1_000_000
+
+    def _call(self, model: str, messages: list[dict[str, str]], schema: type) -> tuple[Any, int, int]:
+        import random
+        import time
+
+        transient = (self._openai.RateLimitError, self._openai.APITimeoutError,
+                     self._openai.APIConnectionError, self._openai.InternalServerError)
+        last: Exception | None = None
+        for attempt in range(3):
+            try:
+                resp = self._client.chat.completions.parse(
+                    model=model, messages=messages, response_format=schema,
+                    temperature=0, seed=self._seed,
+                )
+                usage = resp.usage
+                msg = resp.choices[0].message
+                if msg.parsed is None:
+                    raise ValueError(f"no parsed output (refusal={msg.refusal!r})")
+                return msg.parsed, usage.prompt_tokens, usage.completion_tokens
+            except transient as exc:
+                last = exc
+                time.sleep((2 ** attempt) + random.random())
+        assert last is not None
+        raise last
+
+    def complete(
+        self,
+        stage: Stage,
+        messages: Sequence[dict[str, str]],
+        schema: type,
+        evidence: Sequence[RedactedEvidence] = (),
+    ) -> tuple[Any, Usage]:
+        msgs = [dict(m) for m in messages]
+        if evidence:
+            for ev in evidence:
+                if not isinstance(ev, RedactedEvidence):  # the gate, made structural
+                    raise TypeError("only RedactedEvidence may reach a model")
+            msgs.append({"role": "user", "content": render_evidence(evidence)})
+
+        # Last line of defence: the planted canary secret must never leave the process.
+        # If anything routed it past the gate, refuse the call rather than send it.
+        from ..models import GateViolation
+        from ..redaction import canary_clean
+
+        if not canary_clean(json.dumps(msgs)):
+            raise GateViolation("canary secret present in an outbound model payload")
+
+        role = STAGE_ROLES[stage]
+        for rung_index, rung in enumerate(self.LADDER[role]):
+            model = self._models.for_role(rung)
+            try:
+                tin = tout = 0
+                try:
+                    parsed, a, b = self._call(model, msgs, schema)
+                    tin, tout = a, b
+                except (self._openai.LengthFinishReasonError, ValueError) as exc:
+                    # Rung 2: one re-ask with the error appended.
+                    retry = msgs + [{"role": "user", "content":
+                                     f"Your previous output was invalid: {exc}. Return output "
+                                     "that matches the schema exactly."}]
+                    parsed, a, b = self._call(model, retry, schema)
+                    tin, tout = a, b
+                if rung_index > 0:
+                    self.degraded = True
+                return parsed, Usage(tin, tout, self._cost(model, tin, tout), model,
+                                     degraded=rung_index > 0)
+            except Exception as exc:  # persistent failure on this rung -> next rung
+                last_exc = exc
+                continue
+        raise ProviderUnavailable(f"all rungs failed for stage {stage}: {last_exc}")

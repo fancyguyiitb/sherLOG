@@ -10,7 +10,7 @@ breaches_slo: none
 inject:
   mode: git_commit
   target: orders-svc
-  patch_file: patches/D-2_log_strings_and_readme.patch
+  patch_file: variants/D-2.py
   commit_message: "chore: clarify log messages and update README"
   change:
     touches: ["log message strings", "README.md"]

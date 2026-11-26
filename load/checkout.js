@@ -49,10 +49,11 @@ export const options = {
   // demonstrated, and letting k6 decide what counts as an incident would hollow it out.
 };
 
-// A 30-minute synthetic day as a piecewise sine between 0.6x and 1.6x of baseline.
+// A 30-minute synthetic day as a piecewise sine between 0.6x and 1.6x of baseline,
+// repeated for 24h so the load never simply stops.
 function diurnal(base) {
   const stages = [];
-  const steps = 15;
+  const steps = 15 * 48;
   for (let i = 0; i < steps; i++) {
     const phase = (i / steps) * 2 * Math.PI;
     const multiplier = 1.1 + 0.5 * Math.sin(phase);

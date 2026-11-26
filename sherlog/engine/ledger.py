@@ -70,6 +70,8 @@ class Investigation:
     claims: list[Claim] = field(default_factory=list)
 
     critic_concurs: bool = True
+    #: Include the implicit "none of the above" hypothesis in normalisation (see posterior).
+    residual: bool = False
     decision: Decision | None = None
     governor: BudgetGovernor = field(default_factory=BudgetGovernor)
 
@@ -136,7 +138,7 @@ class Investigation:
 
     def recompute(self) -> list[Hypothesis]:
         self.hypotheses = update_posteriors(
-            self.hypotheses, self.assessments, self.signal_checks
+            self.hypotheses, self.assessments, self.signal_checks, residual=self.residual
         )
         return self.hypotheses
 
@@ -158,6 +160,8 @@ class Investigation:
             "stage": self.stage,
             "degraded": self.degraded,
             "margin": round(self.margin, 3),
+            # Mass left on the implicit "none of the above" hypothesis.
+            "residual": round(max(0.0, 1.0 - sum(h.posterior for h in self.hypotheses)), 3),
             "hypotheses": [
                 {
                     "id": h.id,

@@ -9,8 +9,10 @@ being different is the thing that makes root-cause analysis harder than alert ro
 
 from __future__ import annotations
 
+import json
 import uuid
 
+import redis.asyncio as aioredis
 from fastapi import HTTPException
 from pydantic import BaseModel
 
@@ -19,6 +21,7 @@ from nimbus_common.app import create_app, propagate
 from nimbus_common.config import load
 from nimbus_common.http import UpstreamClient
 from nimbus_common.logging import Logger, timed
+from nimbus_common.metrics import orders_created_total
 
 from .catalog import CatalogRepo
 from .pool import InstrumentedPool, PoolTimeout
@@ -28,7 +31,8 @@ log = Logger(settings)
 app = create_app(settings, log)
 
 pool = InstrumentedPool(settings, log)
-catalog = CatalogRepo(settings, log, cache=None)
+cache = aioredis.from_url(settings.redis_url, socket_timeout=1.0) if settings.redis_url else None
+catalog = CatalogRepo(settings, log, cache=cache)
 payments = UpstreamClient(settings, log, upstream="payments-svc", base_url="http://payments-svc:8002")
 
 
@@ -48,8 +52,8 @@ async def create_order(req: CreateOrder) -> dict[str, object]:
     order_id = str(uuid.uuid4())
 
     try:
-        async with pool.acquire():
-            items = await catalog.enrich_items([i.sku for i in req.items])
+        async with pool.acquire() as conn:
+            items = await catalog.enrich_items(conn, [i.sku for i in req.items])
             total_cents = sum(
                 item.price_cents * line.quantity
                 for item, line in zip(items, req.items)
@@ -77,7 +81,7 @@ async def create_order(req: CreateOrder) -> dict[str, object]:
                 raise HTTPException(status_code=402, detail="payment declined")
 
             log.info(ev.PAYMENT_CAPTURED, order_id=order_id, duration_ms=t.ms)
-            await _enqueue_fulfillment(order_id, req.items)
+            await _persist(conn, order_id, req, items, total_cents)
 
     except PoolTimeout as exc:
         # A 500 rather than a 503: the pool being starved is our defect, not backpressure
@@ -90,20 +94,47 @@ async def create_order(req: CreateOrder) -> dict[str, object]:
 
 @app.get("/orders/{order_id}")
 async def get_order(order_id: str) -> dict[str, object]:
-    async with pool.acquire():
-        log.debug(ev.DB_QUERY, query="order_by_id", order_id=order_id)
-        # Under F-06 this returns a stale PENDING indefinitely: the worker never completes
-        # the job, so the read is correct, fast, and wrong. Zero errors anywhere, and the
-        # freshness SLO is the only thing that notices.
-        return {"order_id": order_id, "status": "PENDING"}
+    try:
+        uuid.UUID(order_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="no such order") from exc
+    try:
+        async with pool.acquire() as conn:
+            log.debug(ev.DB_QUERY, query="order_by_id", order_id=order_id)
+            # Under F-06 this returns a stale PENDING indefinitely: the worker never
+            # completes the job, so the read is correct, fast, and wrong. Zero errors
+            # anywhere, and the freshness SLO is the only thing that notices.
+            cur = await conn.execute("SELECT status FROM orders WHERE id = %s", (order_id,))
+            row = await cur.fetchone()
+    except PoolTimeout as exc:
+        raise HTTPException(status_code=500, detail="database unavailable") from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such order")
+    return {"order_id": order_id, "status": row[0]}
 
 
-async def _enqueue_fulfillment(order_id: str, items: list[LineItem]) -> None:
-    log.debug(ev.DB_QUERY, query="enqueue_job", order_id=order_id)
-    # INSERT INTO jobs (queue, payload, status) VALUES ('fulfillment', $1, 'PENDING')
+async def _persist(conn: object, order_id: str, req: CreateOrder, items: list, total: int) -> None:
+    """Order row, line items and the fulfillment job, in one transaction."""
+    log.debug(ev.DB_QUERY, query="insert_order_and_enqueue", order_id=order_id)
+    async with conn.transaction():  # type: ignore[attr-defined]
+        await conn.execute(  # type: ignore[attr-defined]
+            "INSERT INTO orders (id, customer_id, status, total_cents) VALUES (%s,%s,'PENDING',%s)",
+            (order_id, req.customer_id, total),
+        )
+        await conn.execute(  # type: ignore[attr-defined]
+            "INSERT INTO jobs (queue, payload) VALUES ('fulfillment', %s)",
+            (json.dumps({"order_id": order_id, "skus": [i.sku for i in req.items]}),),
+        )
+    orders_created_total.inc()
+
+
+@app.on_event("startup")
+async def _open_pool() -> None:
+    await pool.open()
 
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
+    await pool.close()
     await payments.aclose()
     log.info(ev.SERVICE_STOP, "orders-svc shutting down")

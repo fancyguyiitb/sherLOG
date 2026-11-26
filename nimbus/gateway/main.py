@@ -11,6 +11,7 @@ the gateway could name the cause, there would be nothing to diagnose.
 
 from __future__ import annotations
 
+import httpx
 from fastapi import HTTPException, Request
 from pydantic import BaseModel
 
@@ -49,6 +50,19 @@ async def checkout(req: CheckoutRequest, request: Request) -> dict[str, object]:
                 json=req.model_dump(),
                 headers=propagate(),
             )
+        except httpx.HTTPStatusError as exc:
+            # A 4xx from orders-svc is an answer (a declined card is a 402), not an outage.
+            # Passing it through keeps the 2% decline floor out of the availability SLI.
+            if exc.response.status_code < 500:
+                raise HTTPException(status_code=exc.response.status_code,
+                                    detail=exc.response.json().get("detail")) from exc
+            log.error(
+                ev.CHECKOUT_FAILED,
+                "checkout failed at the orders-svc call",
+                duration_ms=t.ms,
+                error_type=type(exc).__name__,
+            )
+            raise HTTPException(status_code=504, detail="checkout unavailable") from exc
         except Exception as exc:
             log.error(
                 ev.CHECKOUT_FAILED,
@@ -72,6 +86,10 @@ async def checkout(req: CheckoutRequest, request: Request) -> dict[str, object]:
 async def get_order(order_id: str, request: Request) -> dict[str, object]:
     try:
         return await orders.get(f"/orders/{order_id}", headers=propagate())
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code < 500:
+            raise HTTPException(status_code=exc.response.status_code, detail="not found") from exc
+        raise HTTPException(status_code=504, detail="orders unavailable") from exc
     except Exception as exc:
         raise HTTPException(status_code=504, detail="orders unavailable") from exc
 

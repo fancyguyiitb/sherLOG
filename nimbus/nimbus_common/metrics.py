@@ -81,6 +81,11 @@ job_attempts_total = Counter(
     ["queue", "status"],  # status: complete | retry | dead_letter
 )
 
+orders_created_total = Counter(
+    "orders_created_total",
+    "Orders accepted — the freshness SLI's denominator",
+)
+
 order_completion_seconds = Histogram(
     "order_completion_seconds",
     "Time from order creation to COMPLETE — the freshness SLI",

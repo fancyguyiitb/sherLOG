@@ -131,3 +131,31 @@ eliminating it. Every result is reported as **mean ± spread**, never as a singl
 
 An ablation exists for each mechanism the design claims credit for — no-critic, no-docs,
 no-git, no-ledger — so that "the ledger helped" is a measured delta rather than an assertion.
+
+---
+
+## Revision log
+
+### 2026-11-26 — v1 build: judge deferred, metric 1 scored by code
+
+**Recorded before the first scored run.** The v1 build ships without the LLM judge, so:
+
+- **Metric 1 (RCA accuracy@1) is scored by code.** A run scores 1.0 when it did not abstain,
+  its leading hypothesis names the ground-truth *originating component*, its statement
+  names the fault's *mechanism* (a per-fault pattern), and its declared fault class is in
+  the accepted set for the fault (table in `eval/score.py`, `ACCEPT`). The mechanism
+  requirement was added during development, before any matrix run, after a cache-TTL
+  diagnosis of the pool fault F-03 scored as correct: F-01 and F-03 share both component
+  and class. F-06 scores 0.5 when the class is `data` (the bad row — the
+  trigger) rather than `code_regression` (the deleted dead-letter branch — the defect),
+  per §4. F-07 scores 1.0 when the run abstains, names `payments-svc` as the proximate
+  service, and states an evidence gap. Naming a decoy as the cause scores 0.
+- **Decoy blame is detected by code:** D-1 when the leader names Redis with a
+  latency/network mechanism (not eviction/memory); D-2 when the leader or root cause cites
+  the decoy commit's SHA or describes a log-wording/README change.
+- **Metric 4 (causal-chain F1) is deferred** with the judge; it is not reported in v1.
+- **Abstention correctness** counts `INSUFFICIENT_EVIDENCE` only. `PARTIALLY_VERIFIED` is a
+  (downgraded) answer, not an abstention.
+
+Why: a code-scored metric is stricter and fully reproducible; it can only under-credit a
+correct answer phrased with an unexpected fault class, never over-credit a wrong one.

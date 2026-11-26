@@ -148,3 +148,18 @@ def test_the_discriminating_signal_opens_the_margin():
     result = update_posteriors(hyps, discriminated)
     assert result[0].id == "H_ttl"
     assert margin(result) >= 0.25
+
+
+def test_residual_hypothesis_stops_normalisation_manufacturing_confidence():
+    """Every candidate mechanically refuted: without the residual the least-bad one is
+    renormalised to near-certainty; with it, the mass goes to 'none of the above'."""
+    from sherlog.engine.posterior import SignalCheck
+
+    hyps = [Hypothesis(f"H{i}", "s", ["x"]) for i in range(1, 4)]
+    checks = [SignalCheck("H1", "a", False),
+              SignalCheck("H2", "a", False), SignalCheck("H2", "b", False),
+              SignalCheck("H3", "a", False), SignalCheck("H3", "b", False)]
+    plain = update_posteriors([Hypothesis(h.id, "s", ["x"]) for h in hyps], [], checks)
+    assert plain[0].posterior > 0.7
+    honest = update_posteriors(hyps, [], checks, residual=True)
+    assert honest[0].posterior < 0.55

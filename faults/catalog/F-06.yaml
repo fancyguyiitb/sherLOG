@@ -10,7 +10,7 @@ breaches_slo: freshness
 inject:
   mode: data
   target: worker
-  patch_file: patches/F-06_missing_dead_letter.patch
+  patch_file: variants/F-06.py
   commit_message: "refactor: streamline job retry handling"
   change:
     enqueue_job: {sku: "SKU-NULLPRICE", price: null}

@@ -7,231 +7,200 @@ would make git correlation and config-diff reasoning fraudulent — the agent wo
 =====  ==============  =======================================================  =============
 Code   Mechanism       How                                                      Used by
 =====  ==============  =======================================================  =============
-M1     config_patch    Rewrite the service's env, then                          F-01, F-02,
-                       ``docker compose up -d --force-recreate <svc>``.          F-03, F-07
-                       A real restart and a real config-hash change.
-M2     git_commit      Apply a pre-authored patch to the target repo, commit     F-05, F-06
-                       with a plausible message and author, rebuild the image,
-                       redeploy, write a row to ``deployments``. A real commit
-                       with a real diff.
-M3     chaos           Toxiproxy API call adding a latency/bandwidth/timeout     F-04, D-1
-                       toxic to a real network hop.
-M4     data            Insert a crafted row or enqueue a crafted job directly.   F-06
+M1     config_patch    Rewrite ``runtime/env/<svc>.env``, then force-recreate    F-01, F-02,
+                       the container. A real restart and a real config change.   F-03, F-07
+M2     git_commit      Apply a code variant to the deploy repo, commit with a    F-05, F-06,
+                       plausible author and message, recreate the container,    D-2
+                       and write a row to ``deployments``. A real diff.
+M3     chaos           Toxiproxy API: a latency toxic on a real network hop.     F-04, D-1,
+                                                                                 F-07
+M4     data            Insert a crafted catalog row and enqueue a job for it.    F-06
 =====  ==============  =======================================================  =============
 
-Every mechanism is reversible, and revert is exercised as often as inject — a fault that
-cannot be cleanly reverted contaminates every subsequent run in the eval matrix.
+Reverting is a whole-environment reset rather than a per-fault undo (``reset_environment``):
+every toxic removed, every env override cleared, the deploy repo back to its baseline tag,
+crafted rows dead-lettered. A fault that cannot be cleanly reverted contaminates every
+later run in the eval matrix, and a global reset cannot half-succeed silently.
 """
 
 from __future__ import annotations
 
-import subprocess
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Protocol
+from typing import Any
 
-from ..schema import Fault
+import httpx
+import psycopg
+
+from ..schema import Fault, Injection
+from . import deploy
+
+TOXIPROXY = "http://localhost:8474"
+APP_DSN = "postgresql://nimbus:nimbus@localhost:5432/nimbus"
+TRUTH_DSN = "postgresql://injector:injector@localhost:5432/sherlog_truth"
+APP_SERVICES = ("gateway", "orders-svc", "payments-svc", "psp-stub", "worker")
+NULL_SKU = "SKU-NULLPRICE"
 
 
-@dataclass(frozen=True, slots=True)
-class InjectionResult:
+@dataclass
+class InjectionRecord:
     fault_id: str
     injected_at: datetime
-    mechanism: str
-    detail: dict[str, object]
-
-    @property
-    def as_row(self) -> dict[str, object]:
-        """The row written to ``sherlog_truth.injections``, which the engine cannot read."""
-        return {
-            "fault_id": self.fault_id,
-            "injected_at": self.injected_at.isoformat(),
-            "mechanism": self.mechanism,
-            "detail": self.detail,
-        }
+    steps: list[dict[str, Any]] = field(default_factory=list)
+    touched: set[str] = field(default_factory=set)
 
 
-class Mechanism(Protocol):
-    name: str
+# --- M1 ------------------------------------------------------------------------------
 
-    def inject(self, fault: Fault) -> InjectionResult: ...
-    def revert(self, fault: Fault) -> None: ...
+def config_patch(inj: Injection, rec: InjectionRecord) -> None:
+    deploy.write_env(inj.target, inj.change)
+    deploy.recreate(inj.target)
+    rec.touched.add(inj.target)
+    rec.steps.append({"mechanism": "config_patch", "service": inj.target, "change": inj.change})
 
 
-class ConfigPatch:
-    """M1 — rewrite the env file and force-recreate the container.
+# --- M2 ------------------------------------------------------------------------------
 
-    The restart is the point. A config value changed in place without a restart would not
-    move the config hash, and the fault would become undiagnosable by the mechanism the
-    catalog says solves it.
-    """
-
-    name = "config_patch"
-
-    def __init__(self, compose_file: Path, env_dir: Path) -> None:
-        self.compose_file = compose_file
-        self.env_dir = env_dir
-
-    def inject(self, fault: Fault) -> InjectionResult:
-        service = fault.inject.target
-        self._write_env(service, fault.inject.change)
-        self._recreate(service)
-        return InjectionResult(
-            fault.id,
-            datetime.now(timezone.utc),
-            self.name,
-            {"service": service, "change": fault.inject.change},
+def git_commit(inj: Injection, rec: InjectionRecord, author_kind: str) -> None:
+    assert inj.patch_file, "git_commit faults must name a code variant"
+    variant = inj.patch_file.rsplit("/", 1)[-1].removesuffix(".py")
+    deploy.apply_variant(variant)
+    sha, stat = deploy.commit(inj.commit_message or "chore: routine change",
+                              deploy.AUTHORS[author_kind])
+    deploy.recreate(inj.target)
+    author = deploy.AUTHORS[author_kind]
+    with psycopg.connect(APP_DSN, autocommit=True) as conn:
+        conn.execute(
+            "INSERT INTO deployments (commit_sha, service, diff_summary, author) "
+            "VALUES (%s, %s, %s, %s)",
+            (sha, inj.target, f"{inj.commit_message}\n{stat}", author.split(" <")[0]),
         )
+    rec.touched.add(inj.target)
+    rec.steps.append({"mechanism": "git_commit", "service": inj.target, "commit_sha": sha})
 
-    def revert(self, fault: Fault) -> None:
-        self._write_env(fault.inject.target, fault.inject.revert)
-        self._recreate(fault.inject.target)
 
-    def _write_env(self, service: str, values: dict[str, object]) -> None:
-        path = self.env_dir / f"{service}.env"
-        existing: dict[str, str] = {}
-        if path.exists():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if "=" in line and not line.startswith("#"):
-                    key, _, value = line.partition("=")
-                    existing[key.strip()] = value.strip()
-        existing.update({k: str(v) for k, v in values.items()})
-        path.write_text(
-            "\n".join(f"{k}={v}" for k, v in sorted(existing.items())) + "\n",
-            encoding="utf-8",
+# --- M3 ------------------------------------------------------------------------------
+
+def chaos(inj: Injection, rec: InjectionRecord, fault_id: str) -> None:
+    proxy = inj.target.split("/", 1)[-1]
+    change = dict(inj.change)
+    toxic = str(change.pop("toxic", "latency"))
+    body = {
+        "name": f"{fault_id}_{toxic}",
+        "type": toxic,
+        "stream": "downstream",
+        "toxicity": 1.0,
+        "attributes": {"latency": int(change.get("latency_ms", 0)),
+                       "jitter": int(change.get("jitter_ms", 0))},
+    }
+    r = httpx.post(f"{TOXIPROXY}/proxies/{proxy}/toxics", json=body, timeout=5)
+    r.raise_for_status()
+    rec.steps.append({"mechanism": "chaos", "proxy": proxy, "toxic": body})
+
+
+# --- M4 ------------------------------------------------------------------------------
+
+def data(inj: Injection, rec: InjectionRecord) -> None:
+    # F-06's code half ships first, as a real deploy; the data trigger arrives after it.
+    if inj.patch_file:
+        git_commit(inj, rec, "fault")
+    with psycopg.connect(APP_DSN, autocommit=True) as conn:
+        conn.execute(
+            "INSERT INTO catalog (sku, name, price_cents, description) "
+            "VALUES (%s, 'Gift card (custom value)', NULL, '') ON CONFLICT (sku) DO NOTHING",
+            (NULL_SKU,),
         )
-
-    def _recreate(self, service: str) -> None:
-        subprocess.run(
-            ["docker", "compose", "-f", str(self.compose_file),
-             "up", "-d", "--force-recreate", service],
-            check=True,
+        conn.execute("INSERT INTO inventory (sku) VALUES (%s) ON CONFLICT DO NOTHING", (NULL_SKU,))
+        order_id = conn.execute(
+            "INSERT INTO orders (id, customer_id, status, total_cents) "
+            "VALUES (gen_random_uuid(), 'cust-giftcard', 'PENDING', 0) RETURNING id"
+        ).fetchone()[0]  # type: ignore[index]
+        conn.execute(
+            "INSERT INTO jobs (queue, payload) VALUES ('fulfillment', %s)",
+            (json.dumps({"order_id": str(order_id), "skus": [NULL_SKU]}),),
         )
+    rec.steps.append({"mechanism": "data", "sku": NULL_SKU, "order_id": str(order_id)})
 
 
-class GitCommit:
-    """M2 — a real commit, a real rebuild, and a row in ``deployments``.
+# --- orchestration --------------------------------------------------------------------
 
-    The author and message are plausible on purpose. A commit called
-    ``inject_fault_F05`` would let the agent solve F-05 by reading the commit message,
-    which tests nothing.
-    """
+def apply(fault: Fault, rec: InjectionRecord, *, as_decoy: bool = False) -> None:
+    for inj in [fault.inject, *fault.inject.also]:
+        if inj.mode == "config_patch":
+            config_patch(inj, rec)
+        elif inj.mode == "git_commit":
+            git_commit(inj, rec, "decoy" if as_decoy else "fault")
+        elif inj.mode == "chaos":
+            chaos(inj, rec, fault.id)
+        elif inj.mode == "data":
+            data(inj, rec)
+        else:
+            raise ValueError(f"unsupported mode {inj.mode}")
 
-    name = "git_commit"
 
-    def __init__(self, repo: Path, compose_file: Path, patches: Path) -> None:
-        self.repo = repo
-        self.compose_file = compose_file
-        self.patches = patches
+def inject(fault: Fault, decoys: list[Fault]) -> tuple[InjectionRecord, int]:
+    """Inject a fault and its decoys; write ground truth where the engine cannot read it."""
+    rec = InjectionRecord(fault.id, datetime.now(timezone.utc))
+    # Decoys first, so a benign deploy lands *before* the real change — the most seductive
+    # ordering, since "the first deploy after things were fine" is what a hurried human blames.
+    for d in decoys:
+        apply(d, rec, as_decoy=True)
+    apply(fault, rec)
+    injection_id = record_truth(fault, decoys, rec)
+    return rec, injection_id
 
-    def inject(self, fault: Fault) -> InjectionResult:
-        assert fault.inject.patch_file, "git_commit faults must name a patch file"
-        patch = self.patches / Path(fault.inject.patch_file).name
 
-        self._git("apply", str(patch))
-        self._git("add", "-A")
-        self._git(
-            "commit",
-            "-m", fault.inject.commit_message or "chore: routine change",
-            "--author", "Priya Raman <priya@nimbus.example>",
+def record_truth(fault: Fault, decoys: list[Fault], rec: InjectionRecord) -> int:
+    with psycopg.connect(TRUTH_DSN, autocommit=True) as conn:
+        row = conn.execute(
+            "INSERT INTO injections (fault_id, injected_at, decoys, ground_truth, catalog_version) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (fault.id, rec.injected_at, [d.id for d in decoys],
+             json.dumps({**fault.ground_truth.model_dump(), "steps": rec.steps}),
+             "v1"),
+        ).fetchone()
+    return int(row[0])  # type: ignore[index]
+
+
+def reset_environment() -> None:
+    """Back to a clean baseline: no toxics, no overrides, baseline code, no crafted rows."""
+    httpx.post(f"{TOXIPROXY}/reset", timeout=5).raise_for_status()
+
+    dirty: set[str] = set()
+    if deploy.ENV_DIR.exists():
+        for path in deploy.ENV_DIR.glob("*.env"):
+            if path.read_text(encoding="utf-8").strip():
+                dirty.add(path.stem)
+                deploy.clear_env(path.stem)
+
+    if deploy.git("rev-parse", "HEAD").strip() != deploy.git("rev-parse", deploy.BASELINE_TAG).strip():
+        changed = deploy.git("diff", "--name-only", deploy.BASELINE_TAG, "HEAD").splitlines()
+        deploy.git("reset", "-q", "--hard", deploy.BASELINE_TAG)
+        deploy.git("clean", "-qfd")
+        for f in changed:
+            parts = f.split("/")
+            if len(parts) > 2 and parts[0] == "nimbus":
+                dirty.add(parts[1].replace("_svc", "-svc").replace("_stub", "-stub"))
+
+    with psycopg.connect(APP_DSN, autocommit=True) as conn:
+        conn.execute(
+            "UPDATE jobs SET status='DEAD', last_error='environment reset' "
+            "WHERE status='PENDING' AND payload->'skus' ? %s", (NULL_SKU,))
+        conn.execute("DELETE FROM inventory WHERE sku = %s", (NULL_SKU,))
+        conn.execute("DELETE FROM catalog WHERE sku = %s", (NULL_SKU,))
+        conn.execute("DELETE FROM deployments")
+        conn.execute(
+            "INSERT INTO deployments (commit_sha, service, deployed_at, diff_summary, author) "
+            "VALUES (%s, 'all', now() - interval '1 day', 'release: nimbus store', 'Nimbus Deploy')",
+            (deploy.git("rev-parse", "--short=7", deploy.BASELINE_TAG).strip(),),
         )
-        sha = self._git("rev-parse", "--short", "HEAD").strip()
+        conn.execute(
+            "UPDATE orders SET status='COMPLETE', completed_at=now() WHERE customer_id='cust-giftcard'")
 
-        subprocess.run(
-            ["docker", "compose", "-f", str(self.compose_file),
-             "up", "-d", "--build", fault.inject.target],
-            check=True,
-        )
+    with psycopg.connect(TRUTH_DSN, autocommit=True) as conn:
+        conn.execute("UPDATE injections SET reverted_at = now() WHERE reverted_at IS NULL")
 
-        return InjectionResult(
-            fault.id,
-            datetime.now(timezone.utc),
-            self.name,
-            {"commit_sha": sha, "service": fault.inject.target,
-             "message": fault.inject.commit_message},
-        )
-
-    def revert(self, fault: Fault) -> None:
-        self._git("revert", "--no-edit", "HEAD")
-        subprocess.run(
-            ["docker", "compose", "-f", str(self.compose_file),
-             "up", "-d", "--build", fault.inject.target],
-            check=True,
-        )
-
-    def _git(self, *args: str) -> str:
-        return subprocess.run(
-            ["git", "-C", str(self.repo), *args],
-            check=True, capture_output=True, text=True,
-        ).stdout
-
-
-class Chaos:
-    """M3 — Toxiproxy toxics on a real network hop.
-
-    The only free tool that does clean L4 fault injection. Crucially the latency lands
-    *between* the two services, so traces show the time inside the upstream span exactly as
-    a genuinely slow vendor would — which is what F-04 needs to be honest.
-    """
-
-    name = "chaos"
-
-    def __init__(self, api_url: str = "http://localhost:8474") -> None:
-        self.api_url = api_url
-
-    def inject(self, fault: Fault) -> InjectionResult:
-        proxy = fault.inject.target.split("/", 1)[-1]
-        change = dict(fault.inject.change)
-        toxic = str(change.pop("toxic", "latency"))
-        body = {
-            "name": f"{fault.id}_{toxic}",
-            "type": toxic,
-            "stream": "downstream",
-            "attributes": {
-                "latency": change.get("latency_ms", 0),
-                "jitter": change.get("jitter_ms", 0),
-            },
-        }
-        # POST {api_url}/proxies/{proxy}/toxics
-        return InjectionResult(
-            fault.id,
-            datetime.now(timezone.utc),
-            self.name,
-            {"proxy": proxy, "toxic": body},
-        )
-
-    def revert(self, fault: Fault) -> None:
-        ...  # DELETE {api_url}/proxies/{proxy}/toxics/{fault.id}_{toxic}
-
-
-class DataInjection:
-    """M4 — insert a crafted row or enqueue a crafted job.
-
-    Writes as role ``injector`` against the application database. Note what it does *not*
-    do: it never writes ground truth anywhere the engine can reach.
-    """
-
-    name = "data"
-
-    def __init__(self, dsn: str) -> None:
-        self.dsn = dsn
-
-    def inject(self, fault: Fault) -> InjectionResult:
-        return InjectionResult(
-            fault.id,
-            datetime.now(timezone.utc),
-            self.name,
-            {"change": fault.inject.change},
-        )
-
-    def revert(self, fault: Fault) -> None:
-        ...  # DELETE the crafted row / job
-
-
-MECHANISMS = {
-    "config_patch": ConfigPatch,
-    "git_commit": GitCommit,
-    "chaos": Chaos,
-    "data": DataInjection,
-}
+    services = sorted(s for s in dirty if s in (*APP_SERVICES, "redis"))
+    if services:
+        deploy.recreate(*services)

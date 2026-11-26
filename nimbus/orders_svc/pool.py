@@ -17,8 +17,11 @@ import time
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
+from psycopg_pool import AsyncConnectionPool
+
 from nimbus_common import events as ev
 from nimbus_common.config import Settings
+from nimbus_common.tracing import span
 from nimbus_common.logging import Logger
 from nimbus_common.metrics import (
     db_pool_acquire_seconds,
@@ -39,6 +42,17 @@ class InstrumentedPool:
         self.settings = settings
         self.log = logger
         self._sem = asyncio.Semaphore(settings.db_pool_max)
+        # The real psycopg pool sits underneath the semaphore, sized identically, so the
+        # semaphore is a transparent window onto it rather than a second limit.
+        self._pg: AsyncConnectionPool | None = None
+        if settings.database_url:
+            self._pg = AsyncConnectionPool(
+                settings.database_url,
+                min_size=min(settings.db_pool_min, settings.db_pool_max),
+                max_size=settings.db_pool_max,
+                open=False,
+                kwargs={"autocommit": True},
+            )
         self._connect = connect
         self._in_use = 0
         self._waiters = 0
@@ -54,9 +68,10 @@ class InstrumentedPool:
         started = time.perf_counter()
 
         try:
-            await asyncio.wait_for(
-                self._sem.acquire(), timeout=self.settings.db_acquire_timeout_s
-            )
+            with span("db.acquire", **{"db.pool.size": self.settings.db_pool_max}):
+                await asyncio.wait_for(
+                    self._sem.acquire(), timeout=self.settings.db_acquire_timeout_s
+                )
         except asyncio.TimeoutError as exc:
             waited = time.perf_counter() - started
             db_pool_acquire_seconds.labels(service).observe(waited)
@@ -82,11 +97,23 @@ class InstrumentedPool:
         db_pool_in_use.labels(service).set(self._in_use)
 
         try:
-            yield self._connect
+            if self._pg is None:
+                yield self._connect
+            else:
+                async with self._pg.connection() as conn:
+                    yield conn
         finally:
             self._in_use -= 1
             db_pool_in_use.labels(service).set(self._in_use)
             self._sem.release()
+
+    async def open(self) -> None:
+        if self._pg is not None:
+            await self._pg.open(wait=True, timeout=30)
+
+    async def close(self) -> None:
+        if self._pg is not None:
+            await self._pg.close()
 
     @property
     def stats(self) -> dict[str, int]:

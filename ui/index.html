@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sherLOG</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --line: #262d36; --text: #d6dde6; --dim: #8592a3;
+    --accent: #7cc4ff; --ok: #4fd18b; --warn: #f2c14e; --bad: #ff6b6b; --gap: #b58cff;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 18px; padding: 12px 20px;
+           border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .5px; }
+  header h1 span { color: var(--accent); }
+  .tabs button, .console button { background: transparent; color: var(--text);
+           border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer;
+           font: inherit; }
+  .tabs button.on { border-color: var(--accent); color: var(--accent); }
+  .console { display: flex; gap: 6px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+  .console button:hover { border-color: var(--warn); }
+  .console label { color: var(--dim); font-size: 12px; }
+  main { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 56px); }
+  aside { border-right: 1px solid var(--line); overflow-y: auto; max-height: calc(100vh - 56px); }
+  .inv { padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .inv:hover, .inv.sel { background: #1b222c; }
+  .inv .t { color: var(--dim); font-size: 12px; }
+  section.view { padding: 18px 24px; overflow-y: auto; max-height: calc(100vh - 56px); }
+  h2 { font-size: 15px; margin: 22px 0 8px; color: var(--dim); text-transform: uppercase;
+       letter-spacing: 1px; font-weight: 600; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+          padding: 12px 14px; margin-bottom: 10px; }
+  .stages { display: flex; gap: 4px; margin: 8px 0 4px; }
+  .stages div { flex: 1; text-align: center; padding: 5px 0; font-size: 12px; border-radius: 4px;
+                background: #1b222c; color: var(--dim); }
+  .stages div.done { background: #1d3a2b; color: var(--ok); }
+  .stages div.cur { background: #1d3147; color: var(--accent); }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px;
+          font-weight: 600; font-family: var(--mono); }
+  .CONFIRMED { background: #1d3a2b; color: var(--ok); }
+  .LIKELY { background: #3a331d; color: var(--warn); }
+  .PARTIALLY_VERIFIED { background: #3a2a1d; color: #ffa55c; }
+  .INSUFFICIENT_EVIDENCE { background: #2c2140; color: var(--gap); }
+  .PRESENT { background: #1d3a2b; color: var(--ok); }
+  .ABSENT { background: #3a1d1d; color: var(--bad); }
+  .NODATA { background: #2c2140; color: var(--gap); }
+  .hyp { display: grid; grid-template-columns: 40px 1fr 160px; gap: 10px; align-items: start; }
+  .hyp.refuted { opacity: .45; }
+  .hyp.refuted .stmt { text-decoration: line-through; }
+  .bar { height: 8px; background: #1b222c; border-radius: 4px; overflow: hidden; margin-top: 6px; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .checks { margin: 6px 0 0; padding: 0; list-style: none; font-size: 13px; }
+  .checks li { margin: 3px 0; }
+  .obs { color: var(--dim); font-family: var(--mono); font-size: 12px; }
+  a.ev { color: var(--accent); font-family: var(--mono); font-size: 12px; cursor: pointer;
+         text-decoration: none; }
+  a.ev:hover { text-decoration: underline; }
+  .claim { padding: 6px 0; border-bottom: 1px dashed var(--line); }
+  .claim:last-child { border: 0; }
+  .stripped { color: #ffa55c; }
+  .stripped .why { color: var(--dim); font-family: var(--mono); font-size: 12px; }
+  pre { background: #0b0e12; border: 1px solid var(--line); border-radius: 6px; padding: 10px;
+        overflow-x: auto; font: 12px/1.4 var(--mono); white-space: pre-wrap; margin: 6px 0 0; }
+  .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+  .kv div { background: #1b222c; border-radius: 6px; padding: 8px 10px; }
+  .kv b { display: block; font-size: 18px; font-family: var(--mono); }
+  .kv span { color: var(--dim); font-size: 12px; }
+  .timeline { font-family: var(--mono); font-size: 12px; color: var(--dim); max-height: 280px;
+              overflow-y: auto; }
+  .timeline div { padding: 1px 0; }
+  .timeline .check { color: var(--text); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; }
+  .y { color: var(--ok); } .n { color: var(--bad); }
+  #drawer { position: fixed; right: 0; top: 0; bottom: 0; width: min(720px, 90vw);
+            background: var(--panel); border-left: 1px solid var(--line); padding: 18px;
+            overflow-y: auto; transform: translateX(100%); transition: transform .15s; z-index: 9; }
+  #drawer.open { transform: none; }
+  #drawer .x { float: right; cursor: pointer; color: var(--dim); }
+  .empty { color: var(--dim); padding: 40px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>sher<span>LOG</span></h1>
+  <div class="tabs">
+    <button data-tab="live" class="on">Investigations</button>
+    <button data-tab="eval">Eval</button>
+  </div>
+  <div class="console" id="console">
+    <label><input type="checkbox" id="decoys" checked> with decoys</label>
+  </div>
+</header>
+<main>
+  <aside id="list"></aside>
+  <section class="view" id="view"><div class="empty">No investigation selected. Inject a fault and wait for the detector.</div></section>
+</main>
+<div id="drawer"><span class="x" onclick="closeDrawer()">close ✕</span><div id="drawerBody"></div></div>
+
+<script>
+const STAGES = ["triage", "hypothesize", "gather", "verify", "critic", "report"];
+let selected = null, tab = "live", current = null;
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const evLink = (id) => `<a class="ev" onclick="showEv('${id}')">${id}</a>`;
+const linkify = (t) => esc(t).replace(/ev_[0-9a-f]{8}/g, m => evLink(m));
+const fmtT = (iso) => iso ? new Date(iso).toLocaleTimeString() : "";
+
+async function j(url, opts) { const r = await fetch(url, opts); if (!r.ok) throw new Error(r.status); return r.json(); }
+
+async function buildConsole() {
+  const faults = await j("/api/faults");
+  const c = $("#console");
+  for (const f of faults) {
+    const b = document.createElement("button");
+    b.textContent = `Inject ${f.id}`;
+    b.title = f.name;
+    b.onclick = async () => {
+      b.disabled = true;
+      try { await j(`/api/inject/${f.id}?decoys=${$("#decoys").checked}`, {method: "POST"}); b.textContent = `${f.id} injected`; }
+      catch (e) { alert("inject failed: " + e); }
+      setTimeout(() => { b.disabled = false; b.textContent = `Inject ${f.id}`; }, 4000);
+    };
+    c.appendChild(b);
+  }
+  const r = document.createElement("button");
+  r.textContent = "Reset"; r.onclick = () => j("/api/reset", {method: "POST"});
+  c.appendChild(r);
+}
+
+async function refreshList() {
+  const items = await j("/api/investigations");
+  $("#list").innerHTML = items.map(i => `
+    <div class="inv ${i.id === selected ? "sel" : ""}" onclick="select('${i.id}')">
+      <div>${i.outcome ? `<span class="pill ${i.outcome}">${i.outcome.replace("_EVIDENCE","")}</span>` : `<span class="pill">${i.stage}</span>`}
+        ${esc(i.label || i.alerts.map(a => a.slo).join(", "))}</div>
+      <div class="t">${fmtT(i.started_at)} · ${i.id}</div>
+      ${i.root_cause ? `<div class="t">${esc(i.root_cause.slice(0, 110))}</div>` : ""}
+    </div>`).join("") || `<div class="inv t">no investigations yet</div>`;
+  if (!selected && items.length) select(items[0].id);
+}
+
+async function select(id) { selected = id; await renderInv(); refreshList(); }
+
+function checkPill(s) { return `<span class="pill ${s.replace(" ", "")}">${s}</span>`; }
+
+async function renderInv() {
+  if (!selected || tab !== "live") return;
+  const d = current = await j(`/api/investigations/${selected}`);
+  const L = d.ledger, dec = d.decision, rep = d.report || {}, ver = d.verification || {};
+  const si = STAGES.indexOf(L.stage);
+  const stages = STAGES.map((s, i) => `<div class="${L.stage === "done" || i < si ? "done" : i === si ? "cur" : ""}">${s}</div>`).join("");
+  const hyps = L.hypotheses.map(h => {
+    const m = d.hypotheses_meta[h.id] || {};
+    const checks = (m.checks || []).map(c => `<li>${checkPill(c.status)} ${esc(c.signal)} ${evLink(c.evidence_id)}<br><span class="obs">${esc(c.observed)}</span></li>`).join("");
+    return `<div class="card hyp ${h.status}">
+      <div><b>${h.id}</b></div>
+      <div><div class="stmt">${esc(h.statement)}</div>
+        <div class="obs">origin: ${esc(m.component)} · class: ${esc(m.fault_class)} · status: ${h.status}</div>
+        <ul class="checks">${checks}</ul></div>
+      <div><span class="obs">posterior</span> <b>${h.posterior.toFixed(2)}</b><div class="bar"><i style="width:${(h.posterior*100).toFixed(0)}%"></i></div>
+        <div class="obs" style="margin-top:6px">+${h.supporting.length} / −${h.contradicting.length} evidence</div></div>
+    </div>`;
+  }).join("");
+  const claims = (rep.verified_chain || []).map(c => `<div class="claim">✓ ${esc(c.text)} ${c.evidence_ids.map(evLink).join(" ")}</div>`).join("");
+  const stripped = (ver.stripped_claims || []).map(c => `<div class="claim stripped">✗ ${esc(c.text)} ${c.evidence_ids.map(evLink).join(" ")}<div class="why">${c.failures.map(esc).join("; ")}</div></div>`).join("");
+  const cost = d.stages.reduce((a, s) => a + s.cost_usd, 0);
+  $("#view").innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div><b>${d.incident.id}</b> · detected ${fmtT(d.incident.detected_at)} by burn-rate:
+          ${d.incident.alerts.map(a => `${a.slo} ${a.severity} ${a.burn_rate}×`).join(", ")}</div>
+        ${dec ? `<span class="pill ${dec.outcome}" style="font-size:14px">${dec.outcome}</span>` : ""}
+      </div>
+      <div class="stages">${stages}</div>
+      <div class="obs">window ${fmtT(d.window.start)}–${fmtT(d.window.end)} vs baseline ${fmtT(d.window.baseline_start)}–${fmtT(d.window.baseline_end)} ${d.degraded ? "· DEGRADED" : ""} ${d.error ? "· " + esc(d.error) : ""}</div>
+    </div>
+    ${dec ? `<div class="kv">
+      <div><b>${dec.confidence.toFixed(2)}</b><span>confidence (computed)</span></div>
+      <div><b>${dec.margin.toFixed(2)}</b><span>margin over runner-up</span></div>
+      <div><b>${(L.residual ?? 0).toFixed(2)}</b><span>"none of the above" mass</span></div>
+      <div><b>${esc(dec.reason)}</b><span>gate reason</span></div>
+      <div><b>${ver.verified ?? "–"}/${ver.total ?? "–"}</b><span>claims verified</span></div>
+      <div><b>${L.evidence_count}</b><span>evidence items</span></div>
+      <div><b>$${cost.toFixed(3)}</b><span>${L.budget.tokens.toLocaleString()} tokens · ${L.budget.tool_calls} tools</span></div>
+    </div>` : ""}
+    ${rep.root_cause ? `<h2>Diagnosis</h2><div class="card">
+      <div><b>${linkify(rep.root_cause)}</b></div>
+      <div class="obs" style="margin:6px 0">proximate: ${esc(rep.proximate_service)} · originating: ${esc(rep.originating_component)}</div>
+      ${claims}${stripped}
+      <div style="margin-top:8px"><span class="obs">proposed fix:</span> ${esc(rep.proposed_fix)}</div>
+      ${(rep.evidence_gaps || []).length ? `<div style="margin-top:6px"><span class="obs">evidence gaps:</span> ${rep.evidence_gaps.map(esc).join("; ")}</div>` : ""}
+    </div>` : ""}
+    ${d.critic && d.critic.verdict ? `<h2>Critic (fresh context)</h2><div class="card"><span class="pill ${d.critic.verdict === "CONCUR" ? "PRESENT" : "ABSENT"}">${d.critic.verdict}</span> ${esc(d.critic.strongest_objection)}
+      ${d.critic.better_explanation ? `<div class="obs" style="margin-top:4px">alternative: ${esc(d.critic.better_explanation)}</div>` : ""}</div>` : ""}
+    <h2>Hypothesis ledger — predictions registered before evidence, checked by code</h2>
+    ${hyps || `<div class="empty">hypotheses pending…</div>`}
+    ${d.triage && d.triage.summary ? `<h2>Triage</h2><div class="card">${linkify(d.triage.summary)}<div class="obs">${(d.triage.notable || []).map(linkify).join("<br>")}</div></div>` : ""}
+    <h2>Timeline</h2><div class="card timeline">${d.events.map(e => `<div class="${e.kind}">${fmtT(e.at)} [${e.kind}] ${linkify(e.text)}</div>`).join("")}</div>
+    <h2>Model calls</h2><div class="card"><table><tr><th>stage</th><th>model</th><th>in</th><th>out</th><th>$</th><th>s</th></tr>
+      ${d.stages.map(s => `<tr><td>${s.stage}</td><td class="obs">${s.model}</td><td>${s.tokens_in}</td><td>${s.tokens_out}</td><td>${s.cost_usd.toFixed(4)}</td><td>${s.latency_s}</td></tr>`).join("")}</table></div>`;
+}
+
+function showEv(id) {
+  const e = current && current.evidence[id];
+  $("#drawerBody").innerHTML = e ? `<h2>${id} · ${e.kind}</h2>
+    <div class="obs">query: ${esc(e.query)}</div>
+    <div class="obs">window: ${fmtT(e.t_start)}–${fmtT(e.t_end)} · source: ${esc(e.source)} · redactions: ${e.redactions.join(", ") || "none"}</div>
+    <pre>${esc(e.content)}</pre>` : `<h2>${id}</h2><div class="stripped">not in this investigation's evidence store — a fabricated citation.</div>`;
+  $("#drawer").classList.add("open");
+}
+function closeDrawer() { $("#drawer").classList.remove("open"); }
+
+async function renderEval() {
+  const rows = await j("/api/eval");
+  const s = rows.map(r => r.score);
+  const n = s.length, mean = (f) => n ? s.reduce((a, x) => a + (f(x) || 0), 0) / n : 0;
+  const scored = s.filter(x => x.fault_id !== "F-07");
+  const acc = scored.length ? scored.reduce((a, x) => a + x.rca, 0) / scored.length : 0;
+  const claims = s.reduce((a, x) => a + (x.claims_total || 0), 0), strip = s.reduce((a, x) => a + (x.claims_stripped || 0), 0);
+  $("#view").innerHTML = `<h2>Eval — ${n} scored runs</h2>
+    <div class="kv">
+      <div><b>${(acc * 100).toFixed(0)}%</b><span>RCA accuracy@1 (F-01..F-06)</span></div>
+      <div><b>${(mean(x => x.proximate_correct) * 100).toFixed(0)}%</b><span>service localisation</span></div>
+      <div><b>${(mean(x => x.abstention_correct) * 100).toFixed(0)}%</b><span>abstention correctness</span></div>
+      <div><b>${(mean(x => !x.decoy_blamed) * 100).toFixed(0)}%</b><span>decoy resistance</span></div>
+      <div><b>${claims ? (strip / claims * 100).toFixed(1) : "–"}%</b><span>claims stripped (${strip}/${claims})</span></div>
+      <div><b>$${mean(x => x.cost_usd).toFixed(3)}</b><span>mean cost / investigation</span></div>
+    </div>
+    <h2>Runs</h2><div class="card"><table>
+      <tr><th>run</th><th>outcome</th><th>rca</th><th>prox</th><th>origin</th><th>decoy</th><th>mttd</th><th>$</th><th>leading hypothesis</th></tr>
+      ${rows.map(r => { const x = r.score; return `<tr>
+        <td>${r.investigation_id ? `<a class="ev" onclick="tab='live';setTab('live');select('${r.investigation_id}')">${esc(r.key)}</a>` : esc(r.key)}</td>
+        <td><span class="pill ${x.outcome}">${x.outcome}</span></td><td>${x.rca}</td>
+        <td class="${x.proximate_correct ? "y" : "n"}">${x.proximate_correct ? "✓" : "✗"}</td>
+        <td class="${x.originating_correct ? "y" : "n"}">${x.originating_correct ? "✓" : "✗"}</td>
+        <td class="${x.decoy_blamed ? "n" : "y"}">${x.decoy_blamed ? "blamed" : "ok"}</td>
+        <td>${x.mttd_s ? x.mttd_s.toFixed(0) + "s" : "–"}</td><td>${x.cost_usd ?? "–"}</td>
+        <td class="obs">${esc(x.leader || "")}</td></tr>`; }).join("")}</table></div>`;
+}
+
+function setTab(t) {
+  tab = t;
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
+  t === "eval" ? renderEval() : renderInv();
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
+
+buildConsole(); refreshList();
+setInterval(() => { refreshList(); tab === "live" ? renderInv() : renderEval(); }, 3000);
+</script>
+</body>
+</html>
