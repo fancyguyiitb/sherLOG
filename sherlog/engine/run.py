@@ -213,6 +213,11 @@ SNAPSHOT = [
 ]
 
 
+def dark_threshold(baseline_per_minute: float) -> float:
+    """At most this many lines in the last minute counts as a service gone dark."""
+    return max(5.0, 0.01 * baseline_per_minute)
+
+
 def coverage_gaps(name: str, args: dict[str, Any], result: ToolResult) -> list[str]:
     """Telemetry coverage, checked by code. A service whose log volume collapsed, or whose
     metrics scrape went down, is an evidence gap: nothing about its internals can be
@@ -220,7 +225,10 @@ def coverage_gaps(name: str, args: dict[str, Any], result: ToolResult) -> list[s
     gaps = []
     if name == "log_stats" and args.get("service") == "*":
         for svc, v in result.facts.get("volumes", {}).items():
-            if v["baseline_per_minute"] >= 20 and v["last_minute"] < 0.1 * v["baseline_per_minute"]:
+            # DARK means emitting almost nothing, not emitting less. A worker stuck retrying
+            # one job logs a tenth of its usual volume, and that drop is the fault's symptom;
+            # only near-silence is missing telemetry.
+            if v["baseline_per_minute"] >= 20 and v["last_minute"] <= dark_threshold(v["baseline_per_minute"]):
                 gaps.append(f"{svc}: stopped logging ({v['last_minute']} lines in the last "
                             f"minute vs ~{v['baseline_per_minute']:.0f}/min in baseline); its "
                             "internals are not observable")

@@ -225,7 +225,7 @@ def log_volume(w: Window) -> ToolResult:
         per_min = b / minutes
         volumes[svc] = {"count": c, "baseline": b, "last_minute": l1,
                         "baseline_per_minute": round(per_min, 1)}
-        flag = "  <-- WENT QUIET" if per_min >= 20 and l1 < 0.1 * per_min else ""
+        flag = "  <-- WENT DARK" if per_min >= 20 and l1 <= max(5.0, 0.01 * per_min) else ""
         lines.append(f"  {svc:<18} window={c:<7} baseline={b:<7} last_minute={l1:<6} "
                      f"(baseline ~{per_min:.0f}/min){flag}")
     content = (f"log_stats * (log volume per service) window {w.start:%H:%M:%S}-{w.end:%H:%M:%S}Z "

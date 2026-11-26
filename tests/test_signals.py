@@ -184,3 +184,13 @@ def test_no_conclusion_about_a_component_that_went_dark():
     d = decide([hyp("H1", 0.90), hyp("H2", 0.05), hyp("H3", 0.05)], critic_concurs=True,
                unverified_claims=0, verified_claims=4, leader_unobservable=True)
     assert d.outcome == "INSUFFICIENT_EVIDENCE" and d.reason == "evidence_gap"
+
+
+def test_a_quieter_service_is_not_a_dark_one():
+    """F-06's worker, stuck retrying one job, logs ~10% of its usual volume. That is the
+    fault's symptom, not missing telemetry, and must not block the diagnosis."""
+    from sherlog.engine.run import coverage_gaps
+
+    vol = result({"volumes": {"worker": {"count": 900, "baseline": 9000, "last_minute": 180,
+                                         "baseline_per_minute": 1885.0}}})
+    assert coverage_gaps("log_stats", {"service": "*"}, vol) == []
