@@ -54,18 +54,6 @@ class SignalCheck:
     present: bool
 
 
-def _sigmoid(x: float) -> float:
-    if x >= 0:
-        return 1.0 / (1.0 + math.exp(-x))
-    e = math.exp(x)  # avoids overflow for large negative x
-    return e / (1.0 + e)
-
-
-def _logit(p: float) -> float:
-    p = min(max(p, 1e-9), 1 - 1e-9)
-    return math.log(p / (1 - p))
-
-
 def accumulate_weight(
     hypothesis_id: str,
     assessments: list[Assessment],
@@ -126,17 +114,21 @@ def update_posteriors(
     if not hypotheses:
         return []
 
-    n = len(hypotheses) + (1 if residual else 0)
-    prior_logit = _logit(1.0 / n)
-
-    raw: list[float] = []
-    for h in hypotheses:
-        weight = accumulate_weight(h.id, assessments, signal_checks)
-        raw.append(_sigmoid(prior_logit + weight))
-
-    total = sum(raw) + (_sigmoid(prior_logit) if residual else 0.0)
-    for h, p in zip(hypotheses, raw):
-        h.posterior = (p / total) if total > 0 else 1.0 / n
+    # Bayes over mutually exclusive explanations: P(h | E) ∝ P(h) · exp(W_h), where W_h is
+    # the hypothesis's total log-likelihood ratio against a common reference (the residual,
+    # which has W = 0). Priors are uniform and cancel, so this is a softmax over weights.
+    #
+    # v1 instead squashed each hypothesis through its own sigmoid and then normalised. That
+    # saturates: weights of +10 and +6.4 nats both squash to ~1.0 and normalise to 50/50,
+    # discarding a 40:1 likelihood ratio between them. Every rival tie in matrix 2 (F-02
+    # x3, F-03 x1; BUILD_LOG O1) was this, not a lack of discriminating evidence.
+    weights = [accumulate_weight(h.id, assessments, signal_checks) for h in hypotheses]
+    logits = weights + ([0.0] if residual else [])
+    top = max(logits)  # subtract the max so exp() cannot overflow
+    exps = [math.exp(w - top) for w in logits]
+    total = sum(exps)
+    for h, e in zip(hypotheses, exps):
+        h.posterior = e / total
         h.status = _status_for(h.posterior, h.status)
 
     return sorted(hypotheses, key=lambda h: h.posterior, reverse=True)

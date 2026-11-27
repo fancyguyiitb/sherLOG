@@ -163,3 +163,24 @@ def test_residual_hypothesis_stops_normalisation_manufacturing_confidence():
     assert plain[0].posterior > 0.7
     honest = update_posteriors(hyps, [], checks, residual=True)
     assert honest[0].posterior < 0.55
+
+
+def test_two_well_supported_rivals_are_not_squashed_into_a_tie():
+    """BUILD_LOG O1 (matrix 2, F-02 rep1): the cause collected +10.1 nats, a symptom-level
+    rival +6.4. Squashing each through its own sigmoid before normalising put both near
+    1.0 and produced 0.456 vs 0.453. Bayes over exclusive hypotheses keeps the 3.7-nat gap
+    as a ~40:1 ratio."""
+    kinds = ["metric", "state", "trace", "log", "git", "doc"]
+    cause = [a("H1", f"c{i}", "STRONG_SUPPORT", k) for i, k in enumerate(kinds * 2)]
+    symptom = [a("H2", f"s{i}", "STRONG_SUPPORT", k) for i, k in enumerate(["metric", "git"] * 2)]
+    symptom += [a("H2", "s9", "STRONG_SUPPORT", "state"), a("H2", "s10", "WEAK_SUPPORT", "trace")]
+    result = update_posteriors([h("H1"), h("H2"), h("H3")], cause + symptom, residual=True)
+    assert result[0].id == "H1"
+    assert margin(result) > 0.9
+
+
+def test_equal_support_still_ties():
+    """The fix must not invent a winner: identical evidence weight is still a coin flip."""
+    both = [a("H1", "e1", "STRONG_SUPPORT", "metric"), a("H2", "e2", "STRONG_SUPPORT", "metric")]
+    result = update_posteriors([h("H1"), h("H2"), h("H3")], both, residual=True)
+    assert margin(result) == pytest.approx(0.0)

@@ -187,7 +187,8 @@ stage -> model call / tool call.
 5. **Verify** (`fast`). Every (hypothesis, evidence) pair gets a discrete label, judged
    against the competing hypotheses so shared symptoms count as neutral. Code maps labels to
    fixed log-likelihood ratios, applies dedup and the per-evidence-kind cap, and computes
-   posteriors. No model ever emits a probability.
+   posteriors as a softmax over total weights (Bayes over mutually exclusive hypotheses,
+   with a weight-0 "none of the above"). No model ever emits a probability.
 6. **Critic** (`reasoning`, fresh context). Argues the leading conclusion is wrong. A
    dissent caps confidence.
 7. **Report** (`balanced`). Causal-chain claims, each citing evidence IDs. Code extracts

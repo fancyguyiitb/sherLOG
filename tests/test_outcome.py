@@ -111,3 +111,19 @@ def test_likely_is_reachable_between_the_thresholds():
     )
     assert d.outcome == "LIKELY"
     assert d.confidence == pytest.approx(0.65)
+
+
+def test_a_dark_dependency_blocks_a_conclusion_about_its_caller():
+    """F-07 rep2, matrix 2: payments-svc went dark; the leader blamed orders-svc pool
+    saturation "due to slow payment calls". The cause could sit inside the component nobody
+    can see, so the leader is unobservable too."""
+    from sherlog.engine.run import unobservable
+
+    gaps = ["payments-svc: stopped logging (0 lines in the last minute vs ~1449/min in "
+            "baseline); its internals are not observable"]
+    assert unobservable("payments-svc", gaps)
+    assert unobservable("orders-svc", gaps)       # calls payments-svc
+    assert unobservable("gateway", gaps)          # calls it transitively
+    assert not unobservable("redis", gaps)        # does not depend on it
+    assert not unobservable("worker", gaps)
+    assert not unobservable("orders-svc", ["psp-stub: no data returned - evidence gap"])

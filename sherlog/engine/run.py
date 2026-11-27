@@ -25,7 +25,7 @@ from typing import Any
 
 from langsmith import traceable
 
-from ..config import COMPONENTS, SETTINGS, TOPOLOGY
+from ..config import COMPONENTS, SETTINGS, TOPOLOGY, dependencies
 from ..evidence.tools import TOOL_HELP, ToolResult, Window, run_tool
 from ..grounding.citations import verify_all
 from ..llm.client import LLMClient, ProviderUnavailable
@@ -615,14 +615,26 @@ def report(run: Run) -> None:
 
 # ================================================================================ driver
 
+def unobservable(component: str | None, gaps: list[str]) -> bool:
+    """Is ``component``, or anything it calls, dark according to the coverage check?
+
+    A cause inside a dark component cannot be examined. A dark *dependency* is just as
+    disqualifying for a conclusion about its caller: whatever the caller's symptoms are
+    (pool saturation, slow upstream calls), nothing rules out that they originate inside
+    the component we cannot see, so naming a cause in the caller would claim more than
+    the evidence supports (F-07 rep2, matrix 2: "orders-svc pool saturation due to slow
+    payment calls" led while payments-svc was dark).
+    """
+    dark = {g.split(":", 1)[0].strip() for g in gaps if "not observable" in g}
+    return bool(component) and bool(dark & ({component} | dependencies(component)))
+
+
 def _leader_unobservable(run: Run) -> bool:
-    """Does the leading hypothesis originate in a component the coverage check found dark?"""
+    """Does the leading hypothesis rest on a component the coverage check found dark?"""
     leader = run.inv.leader
     if leader is None:
         return False
-    dark = {g.split(":", 1)[0].strip() for g in run.gaps
-            if "not observable" in g}
-    return run.meta.get(leader.id, {}).get("component") in dark
+    return unobservable(run.meta.get(leader.id, {}).get("component"), run.gaps)
 
 
 @traceable(name="investigation")

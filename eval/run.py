@@ -43,8 +43,13 @@ COOLDOWN_S = 8 * 60
 DETECT_TIMEOUT_S = 8 * 60
 
 #: The engine commit every result was produced by.
+#: "-dirty" when engine, harness or fault code differs from that commit, so a result can
+#: never be attributed to code that did not produce it.
 COMMIT = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short=7", "HEAD"],
-                        capture_output=True, text=True).stdout.strip()
+                        capture_output=True, text=True).stdout.strip() + (
+    "-dirty" if subprocess.run(["git", "-C", str(ROOT), "status", "--porcelain", "--",
+                                "sherlog", "eval", "faults", "nimbus"],
+                               capture_output=True, text=True).stdout.strip() else "")
 
 
 def matrix(faults: list[str], reps: int, decoy_modes: list[bool], abstain_reps: int) -> list[dict]:

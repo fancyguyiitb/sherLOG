@@ -611,9 +611,15 @@ Code maps labels to fixed log-likelihood-ratio weights and updates in log-odds:
 | `DECISIVE_REFUTE` | −4.0 |
 
 ```
-posterior(H) = sigmoid( logit(1/N) + Σ w_i )      # N = number of hypotheses
-then normalised across all open hypotheses to sum to 1
+W(H)         = Σ w_i  (after the guards below)
+posterior(H) = exp(W(H)) / ( Σ_H' exp(W(H')) + exp(0) )   # last term: "none of the above"
 ```
+
+Bayes over mutually exclusive hypotheses with a uniform prior (which cancels). The first
+implementation squashed each hypothesis through its own sigmoid, `sigmoid(logit(1/N) + W)`,
+and then normalised. That saturates: +10 and +6.4 nats both squash to ~1.0 and normalise to
+50/50, discarding a 40:1 likelihood ratio. It caused every rival tie in the first full
+matrix (BUILD_LOG O1).
 
 **Three guards on the arithmetic, each fixing a real failure mode:**
 

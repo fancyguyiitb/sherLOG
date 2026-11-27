@@ -79,3 +79,23 @@ payments-svc -> psp-stub (external payment provider, via a network proxy)
 worker -> postgres (polls the jobs table, marks orders COMPLETE)
 SLOs at the gateway: availability (non-5xx /checkout), latency (/checkout under threshold),
 freshness (orders COMPLETE within 60s of creation)."""
+
+#: The same call graph as data: which components each one calls. Must match TOPOLOGY.
+DEPENDS_ON: dict[str, tuple[str, ...]] = {
+    "gateway": ("orders-svc",),
+    "orders-svc": ("postgres", "redis", "payments-svc"),
+    "payments-svc": ("psp-stub",),
+    "worker": ("postgres",),
+}
+
+
+def dependencies(component: str) -> set[str]:
+    """Every component ``component`` calls, directly or transitively."""
+    out: set[str] = set()
+    stack = list(DEPENDS_ON.get(component, ()))
+    while stack:
+        c = stack.pop()
+        if c not in out:
+            out.add(c)
+            stack.extend(DEPENDS_ON.get(c, ()))
+    return out
