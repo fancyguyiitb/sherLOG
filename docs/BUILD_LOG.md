@@ -13,13 +13,15 @@ work can be resumed — or re-run — without rediscovering any of it. Commits a
 | Testbed (Nimbus, 5 services + Postgres/Redis/Toxiproxy + k6) | running, real SQL / cache / OTel traces |
 | Fault injector (config, git commit, chaos, data) + ground truth | working end to end |
 | Engine: 7 tools, 6 stages, LangSmith tracing | working |
-| Eval matrix: 39 runs (6 faults x 3 reps x 2 decoy modes + 3x F-07) | **complete** on commit `71fd514`, 15:22 -> 23:30 UTC 2026-11-26, $3.67 in model calls |
+| Eval matrix 2: 39 runs (6 faults x 3 reps x 2 decoy modes + 3x F-07) | **complete** on commit `71fd514`, 15:22 -> 23:30 UTC 2026-11-26, $3.67 in model calls |
 | O1 fix (`1f7ce70`) + live rerun of F-02 / F-03 | done: RCA@1 F-02 3/6 -> 6/6, F-03 4/6 -> 6/6 (section 7) |
-| Results report | `docs/RESULTS.md` (headline: detection 97%, RCA@1 end-to-end 0.75 +/- 0.43, F-07 abstention 3/3, decoys 18/18, 12.0% claims stripped) |
+| Eval matrix 3: the same 39 runs on the fixed engine | **complete** on commit `0a07fae` (code = `1f7ce70`), 09:44 -> 19:39 UTC 2026-11-27, $3.80 (section 8) |
+| Results report | `docs/RESULTS.md`: matrix 3 headline, matrix 2 kept below it. Detection 100%, RCA@1 end-to-end 0.86 +/- 0.35 (31/36, was 0.75), 1 wrong answer (was 2), F-07 abstention 3/3, decoys 18/18, 8.6% claims stripped |
 
-**To resume the matrix if it dies:** `make up` (if the stack is down), then
-`.venv/Scripts/python -u -W ignore -m eval.run >> runtime/eval/matrix.log 2>&1`.
-It skips every key already in `runtime/eval/results.jsonl`. Do **not** kill it mid-reset
+**To resume a matrix if it dies:** `make up` (if the stack is down), then
+`.venv/Scripts/python -u -W ignore -m eval.run --out runtime/eval/<name>.jsonl >> runtime/eval/<name>.log 2>&1`
+(no `--out` means `runtime/eval/results.jsonl`, matrix 2's file; matrix 3 is `matrix3.jsonl`).
+It skips every key already in the output file. Do **not** kill it mid-reset
 (only while the log's last line is "waiting for a clean baseline"). Keep the UI server off
 while it runs (see bug B12).
 
@@ -43,6 +45,7 @@ superseded by the clean restart on `71fd514` (bugs B16, B17). Not counted.
 | `7e0b8bf` | This build log |
 | `61d8703` | Matrix results published (docs/RESULTS.md, README) |
 | `1f7ce70` | **O1 fix**: softmax posterior; dark-dependency gate; `eval/rescore.py`; `-dirty` commit stamp |
+| `0a07fae` | Build log: O1 fix and rerun (docs only) — **the matrix 3 commit** |
 
 ---
 
@@ -125,18 +128,23 @@ not by reading it.
 | O1 | **FIXED in `1f7ce70` (E18), see section 7.** Original diagnosis kept for the record: **Cap saturation makes well-supported rivals indistinguishable.** Two hypotheses that both collect strong support hit the per-kind caps (+2.0/kind) and land at near-identical posteriors, so the margin rests only on the few discriminating checks. Seen as a symptom-level hypothesis tying the cause (F-02: "orders-svc pool saturation" 0.453 vs Redis maxmemory 0.456) and as two config hypotheses in one service tying (F-03 rep1 off: pool 0.469 vs cache-TTL 0.437) | matrix 2, F-02 (most reps), F-03 | explains-away rule (support from checks a rival also predicts, where the rival explains strictly more, does not count); or weight discriminating checks outside the cap |
 | O8 | **F-03 detectability is load-dependent.** Injected at the diurnal trough (~10 rps), a 1-connection pool (~13 rps capacity at ~75 ms holds) keeps up: 0 waiters, SLIs back to 1.00 after the restart blip, never detected. At 13-16 rps it saturates within a minute | matrix 2, run 35 (F-03 rep3 off) | realistic (capacity faults show at peak); either inject capacity faults at a known load phase, or have the eval record the traffic level at injection and report detection per load band |
 | O7 | **Engine failures were classified as infrastructure and retried** (survivorship bias). Rule "any non-budget error -> harness error, retry" caught "hypothesize produced 2 distinct checkable hypotheses after a re-ask" (F-06 rep2 off), an engine outcome | matrix 2, run 25 | in the reported numbers, engine-originated errors count as scored failures (abstention, reason `no_distinct_hypotheses`) on the first attempt; the retry is listed, not substituted. Runner fix: only network/provider/persistence/tool errors retry |
-| O2 | Statements that omit the mechanism ("broke job completion") score 0 under the strict scorer | matrix 2, F-06 rep1 | prompt: name the specific code path / setting changed |
-| O3 | `proximate_service` is ambiguous on F-04 (orders-svc saturates first, catalog says payments-svc) | dev F-04 | left as defined; reported |
+| O2 | Statements that omit the mechanism ("broke job completion") score 0 under the strict scorer. Did not recur in matrix 3 (F-06 6/6) with nothing changed, so this is variance; still open | matrix 2, F-06 rep1 | prompt: name the specific code path / setting changed |
+| O3 | `proximate_service` is ambiguous on F-04 (orders-svc saturates first, catalog says payments-svc). Matrix 3: 0/6 again; reports name `psp-stub` (4) or `orders-svc` (2) | dev F-04, matrix 3 | left as defined; reported |
 | O4 | `eval/replay.py` cannot replay `runtime_state` (Docker has no history) | dev | dev-only tool; never report replay numbers |
 | O5 | No LLM judge: causal-chain F1 not reported | design cut | judge + 20% hand-scored sample |
 | O6 | Doc retrieval is BM25 only; Drain3 novelty is vs the pre-onset baseline, not 7 days | design cut | pgvector hybrid; continuous template store |
 | O9 | **k6 load shape is not what its comment says.** `load/checkout.js` describes a 30-minute synthetic day; since B7 the code makes ONE sine over the whole 24h run (phase = i/720), so load drifts 0.6x-1.6x over a day and each run's load depends on how long k6 has been up | reading during the O1 rerun | either fix the phase (`i % 15`) and accept a testbed change, or record load at injection (with O8) |
-| O10 | **F-02 service localisation is 0/6, in the matrix and the rerun alike.** The report names `redis` as `proximate_service`; the catalog's answer is `orders-svc` (the first service whose own behaviour degrades). Same ambiguity as O3 | matrix 2 + rerun | include the definition's worked example for cache faults in the report prompt |
-| O11 | Critic dissent caps most answers at LIKELY (7 of 12 reruns at 0.79): the critic still registers alternatives whose predictions are only partly absent | rerun | report as is; consider overruling when the alternative's predictions are mostly absent |
+| O10 | **F-02 service localisation is 0/6, in matrix 2, the rerun and matrix 3 alike.** The report names `redis` as `proximate_service`; the catalog's answer is `orders-svc` (the first service whose own behaviour degrades). Same ambiguity as O3 | matrix 2 + rerun + matrix 3 | include the definition's worked example for cache faults in the report prompt |
+| O11 | Critic dissent caps most answers at LIKELY (7 of 12 reruns at 0.79; matrix 3: the critic dissented in 29 of 39 runs, and 19 outcomes are LIKELY for that reason alone): the critic still registers alternatives whose predictions are only partly absent | rerun, matrix 3 | report as is; consider overruling when the alternative's predictions are mostly absent |
+| O12 | **Model-written claim dates are checked against the evidence windows.** The report schema asks for each claim's full ISO-8601 instant, but evidence content prints only `HH:MM:SSZ`, so the model supplies the date itself. In F-02 rep1 off it wrote 2026-11-21 for a run on 11-27 (times correct). TEMPORAL_MISMATCH stripped all 4 claims, leaving 0 verified, and the run abstained with the right leader at 0.89 / margin 0.78. The check did its job on the claim as written; the date is the fault | matrix 3, F-02 rep1 off | have code fill the date from the investigation window when the model's time-of-day falls inside it; or print full ISO instants in evidence content |
+| O13 | **One failed prediction cancels a whole capped evidence kind.** Support from one kind is clamped at +2.0, and an absent prediction costs −2.0 outside the cap. In F-04 rep1 on, the right leader had 4 metric STRONG_SUPPORT (capped to +2.0), git +0.5, trace −0.5 and one absent trace prediction (−2.0): net 0.0, exactly the residual's weight, so posterior 0.50 and abstain. Working as designed (a hypothesis wrong about itself loses its support), but the size of the penalty relative to the cap was never tuned | matrix 3, F-04 rep1 on; also F-05 rep3 off (two absent predictions, leader −3.5, residual wins) | report as is; consider scaling the penalty by how specific the prediction was, or accepting a partly-present check (predicted trace dominance vs observed share) |
+| O14 | **Symptom named as cause, at near-certainty.** F-04 rep3 on led with "Postgres connection pool saturation in orders-svc" (0.99). The PSP hypothesis collected no support. The critic dissented, which capped the outcome at LIKELY 0.79, but the answer was given and is wrong. This was the retry of a run whose first attempt hit a provider connection error, scored per O7's rule (infrastructure errors retry; the retry counts) | matrix 3, F-04 rep3 on | hypothesize prompt: a resource-saturation hypothesis must name what started holding the resource longer; or make the critic's dissent decisive when it names a concrete upstream cause |
 
 ---
 
-## 5. Matrix outcome, per fault (RCA@1)
+## 5. Matrix 2 outcome, per fault (RCA@1)
+
+Matrix 3's per-fault table is in section 8.
 
 | Fault | Score | Misses and why |
 |---|---|---|
@@ -151,13 +159,15 @@ not by reading it.
 Scored-wrong answers on solvable faults: 2 of 36 (both F-06, O2). Every other miss is an
 abstention or a non-detection.
 
-**Highest-value next fixes, in order:** ~~O1~~ (fixed, section 7), O2 (mechanism specificity
-in the report prompt), O3 / O10 (proximate-service definition with worked examples), O8 + O9
-(record load at injection; fix or document the load shape).
+**Highest-value next fixes, in order (revised after matrix 3):** ~~O1~~ (fixed, section 7),
+O12 (claim dates filled by code, cheap, and it cost a correct answer), O3 / O10
+(proximate-service definition with worked examples, the weakest metric), O13 (penalty vs cap),
+O14 (symptom-as-cause), O8 + O9 (record load at injection; fix or document the load shape),
+O2 (mechanism specificity).
 
 ## 6. Cost
 
-Development runs ~$2.5; aborted first matrix ~$0.7; clean matrix $3.67; O1 rerun (12 runs) $1.11. LangSmith free tier.
+Development runs ~$2.5; aborted first matrix ~$0.7; clean matrix 2 $3.67; O1 rerun (12 runs) $1.11; matrix 3 $3.80. LangSmith free tier.
 
 ## 7. O1 fix and rerun (2026-11-27)
 
@@ -185,7 +195,42 @@ Claims stripped 1/62 (1.6%); MTTD 62 +/- 45 s; MTTR-diagnosis 108 s mean; $0.09/
   The effect of the fix alone is what the offline rescore measures: all 4 tie misses recover
   on their original, unchanged evidence.
 - **n is small.** 6 runs per fault; these are not merged into docs/RESULTS.md, which stays the
-  record of the matrix on `71fd514`. A full matrix on `1f7ce70` is the clean comparison.
+  record of the matrix on `71fd514`. The clean comparison, a full matrix on the fixed engine, is section 8.
 - F-03 rep3 off scored RCA 1.0 with origin wrong: the leading hypothesis named orders-svc, the
   report wrote `originating_component: unknown`.
 
+## 8. Matrix 3: the full matrix on the fixed engine (2026-11-27)
+
+All 39 keys on `0a07fae` (code identical to `1f7ce70`; `0a07fae` only adds this log's section 7),
+same harness, order and scoring. Results in `runtime/eval/matrix3.jsonl` (log `matrix3.log`,
+report `runtime/eval/matrix3-report.md`), 09:44 -> 19:39 UTC. Not one line is `-dirty`. One
+provider connection error (F-04 rep3 on, triage stage) was retried on pass 2, and the retry is
+what is scored. Published as the headline of docs/RESULTS.md, with matrix 2 kept below it.
+
+| Fault | Matrix 2 | Matrix 3 | Service | Origin | Outcomes (matrix 3) | Misses and why |
+|---|---|---|---|---|---|---|
+| F-01 cache TTL -> 0 | 6/6 | 6/6 | 6/6 | 6/6 | CONFIRMED 1, LIKELY 1, PARTIALLY_VERIFIED 4 | — |
+| F-03 pool -> 1 | 4/6 | **6/6** | 6/6 | 4/6 | CONFIRMED 1, LIKELY 5 | — |
+| F-06 dead-letter removed | 3/6 | **6/6** | 6/6 | 6/6 | LIKELY 3, PARTIALLY_VERIFIED 3 | — |
+| F-05 N+1 regression | 6/6 | 5/6 | 6/6 | 6/6 | CONFIRMED 1, LIKELY 3, PARTIALLY_VERIFIED 1, INSUFFICIENT 1 | rep3 off: right leader refuted below the residual, two absent predictions (O13) |
+| F-02 Redis maxmemory | 3/6 | 4/6 | 0/6 (O10) | 5/6 | CONFIRMED 2, LIKELY 2, INSUFFICIENT 2 | rep1 off: every claim stripped for a model-guessed date (O12); rep2 off: genuine tie with a "traffic surge" rival at identical weight (+3.4 each) |
+| F-04 slow payment provider | 5/6 | 4/6 | 0/6 (O3) | 5/6 | LIKELY 5, INSUFFICIENT 1 | rep1 on: right leader netted exactly 0, tying the residual (O13); rep3 on: **wrong**, symptom as cause (O14) |
+| F-07 telemetry blackout | abstained 3/3 | abstained 3/3 | 3/3 | 2/3 | INSUFFICIENT 3 (evidence_gap) | — |
+
+Headline: detection 39/39 (was 38/39); RCA@1 end-to-end 0.86 +/- 0.35, 31/36 (was 0.75, 27/36);
+scored-wrong answers 1 of 36 (was 2); claims stripped 15/175 = 8.6% (was 12.0%); CONFIRMED 5
+(was 1); MTTD 78 +/- 43 s; MTTR-diagnosis 115 +/- 8 s; $0.10/run, $3.80 total.
+
+**What to credit to what:**
+- **The O1 fix: the rival ties.** Matrix 2 lost 4 runs to sigmoid ties. No sigmoid tie recurs.
+  The one F-02 tie in matrix 3 is two hypotheses with *identical* weight, which the softmax
+  correctly leaves tied. The offline rescore (section 7) is the clean measurement of the fix.
+- **Not the fix:** F-06 3/6 -> 6/6 (O2 wording varied, nothing changed), and F-03 rep3 off
+  detected (load, O8 / O9; k6 was up since 07:07, so matrix 3 sat on a different part of the
+  24h curve and had no run at the trough).
+- **New misses, old mechanisms:** O12, O13 and O14 all existed in matrix 2's engine. They
+  surfaced here by chance and are not regressions from the fix. The offline rescore showed 0
+  regressions on matrix 2's evidence.
+- **n:** at ~80% accuracy, one 36-run matrix carries about +/-2.4 runs of binomial noise.
+  +4 runs overall is suggestive on its own; the F-02 / F-03 per-fault movement plus the
+  offline rescore is the stronger evidence.

@@ -108,42 +108,53 @@ cause wrong — and the catalog records that specific wrong answer in advance, a
 
 ## Results (v1 matrix, measured)
 
-39 autonomous runs on engine commit `71fd514`: 6 faults x 3 repetitions x 2 decoy
-conditions, plus 3 runs of the abstention case F-07. Every run was injected, detected,
-investigated and scored with no human in the loop. Scoring is code-only and was defined
-before the run. Full tables: [`docs/RESULTS.md`](docs/RESULTS.md).
+39 autonomous runs on engine commit `0a07fae` (the O1 fix, `1f7ce70`): 6 faults x 3
+repetitions x 2 decoy conditions, plus 3 runs of the abstention case F-07. Every run was
+injected, detected, investigated and scored with no human in the loop. Scoring is code-only
+and was defined before the first matrix ran. Full tables, including the earlier matrix on
+`71fd514`: [`docs/RESULTS.md`](docs/RESULTS.md).
 
-| Metric | Result |
-|---|---|
-| Detection (SLO burn-rate alert within 8 min of injection) | 97% (38/39) |
-| RCA accuracy@1, end to end (undetected runs count as misses) | 0.75 ± 0.43 |
-| Correct abstention on the unobservable fault F-07 | 3/3 |
-| Decoy resistance (benign deploy / mild Redis latency never blamed) | 18/18 |
-| Origin localisation | 87% |
-| Claims stripped by citation verification | 12.0% (20/167) |
-| MTTD (injection -> alert) | 77 ± 46 s |
-| Detection -> verdict (includes a fixed 60 s settle) | 107 ± 6 s |
-| Model cost per investigation | $0.09 ± $0.02 (matrix total $3.67) |
+| Metric | Result | Matrix 2 (`71fd514`) |
+|---|---|---|
+| Detection (SLO burn-rate alert within 8 min of injection) | 100% (39/39) | 97% |
+| RCA accuracy@1, end to end (undetected runs count as misses) | **0.86 ± 0.35** (31/36) | 0.75 ± 0.43 |
+| Scored-wrong answers on the 36 solvable runs | 1 | 2 |
+| Correct abstention on the unobservable fault F-07 | 3/3 | 3/3 |
+| Decoy resistance (benign deploy / mild Redis latency never blamed) | 18/18 | 18/18 |
+| Origin localisation | 87% | 87% |
+| Claims stripped by citation verification | 8.6% (15/175) | 12.0% |
+| MTTD (injection -> alert) | 78 ± 43 s | 77 ± 46 s |
+| Detection -> verdict (includes a fixed 60 s settle) | 115 ± 8 s | 107 ± 6 s |
+| Model cost per investigation | $0.10 ± $0.02 (matrix total $3.80) | $0.09 |
 
-Per fault, RCA@1: F-01 cache TTL 6/6 · F-05 N+1 regression 6/6 · F-04 slow provider 5/6 ·
-F-03 pool size 4/6 (one run injected at the traffic trough was never detected) ·
-F-06 dead-letter removal 3/6 · F-02 Redis eviction 3/6.
+Per fault, RCA@1: F-01 cache TTL 6/6 · F-03 pool size 6/6 · F-06 dead-letter removal 6/6 ·
+F-05 N+1 regression 5/6 · F-02 Redis eviction 4/6 · F-04 slow provider 4/6.
 
-**What the misses are.** Almost every miss is the system *declining* to answer, not answering
-wrongly. Across the 36 solvable runs it gave a scored-wrong answer in 2, both on F-06,
-where it named the right component and deploy but described the mechanism too vaguely for
-the strict scorer ("broke job completion"). The rest are abstentions:
+**What changed between the matrices.** The O1 fix replaced a per-hypothesis sigmoid that
+saturated, and so turned well-separated rivals into ties, with a softmax. It is credited
+only with the 4 tie misses of matrix 2. An offline replay of the stored investigations
+recovers all 4 on unchanged evidence. Some of the remaining movement is run-to-run
+variation: F-06 improved with no change made, and F-04 / F-05 each lost a run. At n = 36,
+the overall +4 runs is suggestive, not conclusive.
 
-- F-02: two well-supported rivals tie under the per-evidence-kind cap and the margin gate
-  declines.
-- F-03 and F-04: one abstention each on a low margin.
-- F-06: one engine failure (fewer than three distinct hypotheses), scored as a failure, not
-  retried away.
+**What the misses are.** Four of the five are the system *declining* to answer, each for a
+different reason:
 
-Each is written up with its evidence in [`docs/BUILD_LOG.md`](docs/BUILD_LOG.md) §4.
+- F-02: the right answer, but the report model guessed the date in its claim timestamps, and
+  citation verification stripped every claim (O12). Another F-02 run was a genuine tie
+  against a "traffic surge" rival.
+- F-04: the right leader netted exactly zero weight. Its capped support was cancelled by one
+  failed prediction, which tied "none of the above" (O13).
+- F-05: the right leader was refuted below "none of the above" by two absent predictions.
 
-Service localisation (63%) is the weakest metric. It stays at 0% on F-02 and F-04, where
-the reports name the gateway or orders-svc instead of the catalog's proximate service.
+The one wrong answer (F-04) named the symptom, orders-svc's Postgres pool saturation, as the
+cause. The critic dissented, so it was reported as LIKELY, not CONFIRMED. Each miss is
+written up in [`docs/BUILD_LOG.md`](docs/BUILD_LOG.md) §8.
+
+Service localisation (69%) is still the weakest metric. It stays at 0% on F-02 and F-04.
+The reports name the originating component (redis, psp-stub) or orders-svc, not the
+catalog's proximate service, which is orders-svc for F-02 and payments-svc for F-04
+(O3, O10).
 
 ---
 
@@ -242,5 +253,5 @@ drive.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — the seven planes and the design decisions behind them
 - [`V1_SCOPE.md`](V1_SCOPE.md) — the locked v1 scope: target app, fault catalog, monitoring, reasoning stack
 - [`docs/SCORING.md`](docs/SCORING.md) — how a diagnosis is judged correct, written before any results existed
-- [`docs/RESULTS.md`](docs/RESULTS.md) — the v1 matrix, every run
+- [`docs/RESULTS.md`](docs/RESULTS.md) — both v1 matrices, every run
 - [`docs/BUILD_LOG.md`](docs/BUILD_LOG.md) — every bug found and fixed, open issues, how to resume
